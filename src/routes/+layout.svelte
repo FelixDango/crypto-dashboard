@@ -12,7 +12,7 @@
 
   const nav = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
-    { href: '/transactions', label: 'Transactions 222', icon: ListChecks },
+    { href: '/transactions', label: 'Transactions', icon: ListChecks },
     { href: '/assets', label: 'Assets', icon: Coins },
     { href: '/settings', label: 'Settings', icon: Settings }
   ];
