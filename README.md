@@ -38,7 +38,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-The container exposes port `3000` only to the Docker network. It does not bind a public host port by default.
+The container exposes port `3000` only to the `npm_proxy` Docker network. It does not bind a public host port by default.
 
 ## GitHub Actions CI/CD
 
@@ -74,18 +74,51 @@ For production deployment, keep this repository checked out on the server and se
 
 You can also run the workflow manually and enable the `deploy` input. The deploy job pulls the tested GHCR image, runs `npm run db:migrate` against the persistent SQLite volume, restarts the Compose service, and checks `/health`.
 
-## Nginx Proxy Manager
+## Password Protection
 
-Create a Proxy Host:
+Authentication for this v1 app is handled in front of the container with Nginx Proxy Manager Access Lists / Basic Auth. Keep the app container private and require Basic Auth at the proxy.
 
-- Forward Hostname/IP: `krypto-dashboard`
-- Forward Port: `3000`
-- Scheme: `http`
-- Websockets Support: off
-- SSL: enable and request/attach your certificate
-- Access List: enable Basic Auth or another NPM access list
+1. Make sure Nginx Proxy Manager and this app share the same Docker network:
 
-Warning: do not expose this app publicly without access control.
+   ```bash
+   docker network create npm_proxy
+   docker compose up -d
+   ```
+
+   If Nginx Proxy Manager is already running in a separate Compose stack, attach its app container to the same network or add `npm_proxy` as an external network in that stack.
+
+2. In Nginx Proxy Manager, create an access list:
+
+   - Go to `Access Lists` -> `Add Access List`
+   - Name it `Krypto Dashboard`
+   - Add one username and a strong password under `Authorization`
+   - Save it
+
+3. Create or edit the proxy host:
+
+   - Domain Names: your dashboard domain
+   - Scheme: `http`
+   - Forward Hostname/IP: `krypto-dashboard`
+   - Forward Port: `3000`
+   - Websockets Support: off
+   - Access List: `Krypto Dashboard`
+   - SSL: request/attach your certificate and enable `Force SSL`
+
+4. Verify the container is not published directly:
+
+   ```bash
+   docker compose ps
+   ```
+
+   The dashboard service should not show a public host port such as `0.0.0.0:3000->3000/tcp`.
+
+5. Verify the protection from a private/incognito browser window:
+
+   - Opening the dashboard domain should show a browser username/password prompt
+   - Canceling the prompt should not show the dashboard
+   - Entering the saved Basic Auth credentials should load the dashboard
+
+Warning: do not expose this app publicly without access control, and do not add a `ports:` mapping for the dashboard service unless it is bound only to a trusted local interface for debugging.
 
 ## Backup
 
