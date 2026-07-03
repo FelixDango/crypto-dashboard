@@ -45,7 +45,7 @@
 <section class="page">
   <div class="page-header">
     <div class="page-title">
-      <h1>Transactions</h1>
+      <h1>Transactions  qweqwdwqd</h1>
       <p class="muted">{data.transactions.length} manual entries</p>
     </div>
     <div class="toolbar">
