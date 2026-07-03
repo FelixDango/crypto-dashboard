@@ -42,7 +42,7 @@ The container exposes port `3000` only to the Docker network. It does not bind a
 
 ## GitHub Actions CI/CD
 
-The workflow in `.github/workflows/ci-cd.yml` runs checks on pull requests and pushes to `main`:
+The workflow in `.github/workflows/ci-cd.yml` runs checks on pull requests and pushes to `main` or `master`:
 
 ```bash
 npm ci
@@ -53,10 +53,11 @@ npm run build
 docker build
 ```
 
-On pushes to `main` and version tags, it publishes the Docker image to GitHub Container Registry as:
+On pushes to `main`, `master`, and version tags, it publishes the Docker image to GitHub Container Registry as:
 
 ```text
 ghcr.io/<owner>/<repo>:main
+ghcr.io/<owner>/<repo>:master
 ghcr.io/<owner>/<repo>:sha-<commit-sha>
 ghcr.io/<owner>/<repo>:vX.Y.Z
 ```
@@ -69,7 +70,7 @@ For production deployment, keep this repository checked out on the server and se
 - `DEPLOY_PATH`: absolute path to the checked-out project on the server
 - `DEPLOY_PORT`: optional SSH port, defaults to `22`
 
-Enable automatic deploys from `main` by setting the repository variable `ENABLE_PRODUCTION_DEPLOY` to `true`. You can also run the workflow manually and enable the `deploy` input. The deploy job pulls the tested GHCR image, runs `npm run db:migrate` against the persistent SQLite volume, restarts the Compose service, and checks `/health`.
+Enable automatic deploys from `main` or `master` by setting the repository variable `ENABLE_PRODUCTION_DEPLOY` to `true`. You can also run the workflow manually and enable the `deploy` input. The deploy job pulls the tested GHCR image, runs `npm run db:migrate` against the persistent SQLite volume, restarts the Compose service, and checks `/health`.
 
 ## Nginx Proxy Manager
 
