@@ -1,7 +1,11 @@
 import { parse } from 'csv-parse/sync';
 import { stringify } from 'csv-stringify/sync';
-import type { TransactionRecord } from '$lib/types';
+import { eq } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
+import type { Currency, TransactionRecord } from '$lib/types';
 import { transactionInputSchema } from '$lib/validation/transaction';
+import { db, getSqlite } from './db/client';
+import { importBatches, transactions } from './db/schema';
 import { createTransaction } from './transactions';
 
 const headers = [
@@ -24,6 +28,100 @@ function safeCell(value: string | null | undefined): string {
   return /^[=+\-@]/.test(cleaned) ? `'${cleaned}` : cleaned;
 }
 
+type ParsedCsvRow = {
+  index: number;
+  input: ReturnType<typeof transactionInputSchema.parse>;
+  hash: string;
+};
+
+export type CsvPreviewRow = {
+  index: number;
+  type: string;
+  assetSymbol: string;
+  assetName: string;
+  quantity: string;
+  fiatAmount: string;
+  fiatCurrency: Currency;
+  transactionDate: string;
+  duplicate: boolean;
+};
+
+export type CsvPreview = {
+  totalRows: number;
+  importableRows: number;
+  duplicateRows: number;
+  rows: CsvPreviewRow[];
+};
+
+function transactionHash(input: ParsedCsvRow['input']): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        asset: input.asset,
+        type: input.type,
+        quantity: input.quantity,
+        fiatAmount: input.fiatAmount,
+        fiatCurrency: input.fiatCurrency,
+        feeAmount: input.feeAmount,
+        feeCurrency: input.feeCurrency,
+        transactionDate: input.transactionDate,
+        notes: input.notes
+      })
+    )
+    .digest('hex');
+}
+
+function rowIsDuplicate(hash: string): boolean {
+  return (
+    db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.rowHash, hash))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
+function parseTransactionsCsv(content: string): ParsedCsvRow[] {
+  const rows = parse(content, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    bom: true,
+    max_record_size: 20_000
+  }) as Record<string, string>[];
+
+  if (rows.length > 5000) {
+    throw new Error('CSV import is limited to 5,000 rows at a time.');
+  }
+
+  return rows.map((row, index) => {
+    const input = transactionInputSchema.parse({
+      asset: {
+        provider: safeCell(row.asset_provider || 'coingecko'),
+        providerCoinId: safeCell(row.asset_provider_coin_id),
+        symbol: safeCell(row.asset_symbol),
+        name: safeCell(row.asset_name),
+        imageUrl: ''
+      },
+      type: row.type,
+      quantity: row.quantity,
+      fiatAmount: row.fiat_amount,
+      fiatCurrency: row.fiat_currency,
+      feeAmount: row.fee_amount || null,
+      feeCurrency: row.fee_currency || row.fiat_currency,
+      transactionDate: row.transaction_date,
+      notes: safeCell(row.notes)
+    });
+
+    return {
+      index: index + 1,
+      input,
+      hash: transactionHash(input)
+    };
+  });
+}
+
 export function exportTransactionsToCsv(transactions: TransactionRecord[]): string {
   const records = transactions.map((transaction) => ({
     type: transaction.type,
@@ -43,41 +141,72 @@ export function exportTransactionsToCsv(transactions: TransactionRecord[]): stri
   return stringify(records, { header: true, columns: headers });
 }
 
-export function importTransactionsFromCsv(content: string): { imported: number } {
-  const rows = parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    bom: true,
-    max_record_size: 20_000
-  }) as Record<string, string>[];
+export function previewTransactionsCsv(content: string): CsvPreview {
+  const parsed = parseTransactionsCsv(content);
+  const seen = new Set<string>();
+  let duplicateRows = 0;
 
-  if (rows.length > 5000) {
-    throw new Error('CSV import is limited to 5,000 rows at a time.');
-  }
+  const rows = parsed.map((row) => {
+    const duplicate = seen.has(row.hash) || rowIsDuplicate(row.hash);
+    seen.add(row.hash);
+    if (duplicate) duplicateRows += 1;
 
-  let imported = 0;
-  for (const row of rows) {
-    const parsed = transactionInputSchema.parse({
-      asset: {
-        provider: safeCell(row.asset_provider || 'coingecko'),
-        providerCoinId: safeCell(row.asset_provider_coin_id),
-        symbol: safeCell(row.asset_symbol),
-        name: safeCell(row.asset_name),
-        imageUrl: ''
-      },
-      type: row.type,
-      quantity: row.quantity,
-      fiatAmount: row.fiat_amount,
-      fiatCurrency: row.fiat_currency,
-      feeAmount: row.fee_amount || null,
-      feeCurrency: row.fee_currency || row.fiat_currency,
-      transactionDate: row.transaction_date,
-      notes: safeCell(row.notes)
-    });
-    createTransaction(parsed);
-    imported += 1;
-  }
+    return {
+      index: row.index,
+      type: row.input.type,
+      assetSymbol: row.input.asset.symbol,
+      assetName: row.input.asset.name,
+      quantity: row.input.quantity,
+      fiatAmount: row.input.fiatAmount,
+      fiatCurrency: row.input.fiatCurrency,
+      transactionDate: row.input.transactionDate,
+      duplicate
+    };
+  });
 
-  return { imported };
+  return {
+    totalRows: parsed.length,
+    importableRows: parsed.length - duplicateRows,
+    duplicateRows,
+    rows
+  };
+}
+
+export function importTransactionsFromCsv(
+  content: string,
+  filename: string | null = null
+): { imported: number; duplicates: number; batchId: string } {
+  const parsed = parseTransactionsCsv(content);
+  const seen = new Set<string>();
+  const importable = parsed.filter((row) => {
+    const duplicate = seen.has(row.hash) || rowIsDuplicate(row.hash);
+    seen.add(row.hash);
+    return !duplicate;
+  });
+  const duplicates = parsed.length - importable.length;
+  const batchId = randomUUID();
+
+  getSqlite().transaction(() => {
+    db.insert(importBatches)
+      .values({
+        id: batchId,
+        filename,
+        totalRows: parsed.length,
+        importedRows: importable.length,
+        duplicateRows: duplicates,
+        status: 'complete',
+        createdAt: new Date().toISOString()
+      })
+      .run();
+
+    for (const row of importable) {
+      createTransaction({
+        ...row.input,
+        importBatchId: batchId,
+        rowHash: row.hash
+      });
+    }
+  })();
+
+  return { imported: importable.length, duplicates, batchId };
 }

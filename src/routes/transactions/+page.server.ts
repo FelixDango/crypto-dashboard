@@ -1,6 +1,10 @@
 import { fail } from '@sveltejs/kit';
 import { ZodError } from 'zod';
-import { exportTransactionsToCsv, importTransactionsFromCsv } from '$lib/server/csv';
+import {
+  exportTransactionsToCsv,
+  importTransactionsFromCsv,
+  previewTransactionsCsv
+} from '$lib/server/csv';
 import {
   createTransaction,
   deleteTransaction,
@@ -30,7 +34,7 @@ export const actions = {
   create: async ({ request }) => {
     try {
       createTransaction(parseTransactionForm(await request.formData()));
-      return { success: true };
+      return { success: true, intent: 'create' };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'create' });
     }
@@ -43,7 +47,7 @@ export const actions = {
 
     try {
       updateTransaction(id, parseTransactionForm(formData));
-      return { success: true };
+      return { success: true, intent: 'update' };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'update' });
     }
@@ -55,19 +59,50 @@ export const actions = {
     if (!id) return fail(400, { error: 'Missing transaction id.', intent: 'delete' });
 
     deleteTransaction(id);
-    return { success: true };
+    return { success: true, intent: 'delete' };
+  },
+
+  previewCsv: async ({ request }) => {
+    const formData = await request.formData();
+    const file = formData.get('csv_file');
+    if (!(file instanceof File)) {
+      return fail(400, { error: 'CSV file is required.', intent: 'previewCsv' });
+    }
+
+    try {
+      const csvContent = await file.text();
+      return {
+        success: true,
+        intent: 'previewCsv',
+        filename: file.name,
+        csvContent,
+        preview: previewTransactionsCsv(csvContent)
+      };
+    } catch (error) {
+      return fail(400, { error: actionError(error), intent: 'previewCsv' });
+    }
   },
 
   importCsv: async ({ request }) => {
     const formData = await request.formData();
+    const content = formData.get('csv_content')?.toString();
     const file = formData.get('csv_file');
-    if (!(file instanceof File)) {
+    const filename =
+      formData.get('filename')?.toString() || (file instanceof File ? file.name : null);
+
+    if (!content && !(file instanceof File)) {
       return fail(400, { error: 'CSV file is required.', intent: 'importCsv' });
     }
 
     try {
-      const result = importTransactionsFromCsv(await file.text());
-      return { success: true, imported: result.imported };
+      const result = importTransactionsFromCsv(content || (await (file as File).text()), filename);
+      return {
+        success: true,
+        intent: 'importCsv',
+        imported: result.imported,
+        duplicates: result.duplicates,
+        batchId: result.batchId
+      };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'importCsv' });
     }

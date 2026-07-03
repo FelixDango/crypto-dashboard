@@ -533,11 +533,13 @@
     :global(.page-header) {
       display: grid;
       gap: 0.85rem;
+      grid-template-columns: 1fr;
     }
 
     :global(.page-header > .btn),
     :global(.page-header .toolbar),
     :global(.page-header .toolbar .btn) {
+      justify-self: stretch;
       width: 100%;
     }
 

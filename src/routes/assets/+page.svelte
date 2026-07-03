@@ -8,6 +8,10 @@
   };
 
   $: currency = data.overview.totals.baseCurrency;
+
+  function assetHref(assetId: string) {
+    return `/assets/${encodeURIComponent(assetId)}`;
+  }
 </script>
 
 <section class="page">
@@ -35,7 +39,9 @@
               <th>Current price</th>
               <th>Value</th>
               <th>Unrealized P/L</th>
+              <th>Realized P/L</th>
               <th>ROI</th>
+              <th>Fees</th>
               <th>Allocation</th>
             </tr>
           </thead>
@@ -43,7 +49,7 @@
             {#each data.overview.holdings as holding}
               <tr>
                 <td class="primary-cell" data-label="Asset">
-                  <div class="asset-cell">
+                  <a class="asset-cell" href={assetHref(holding.assetId)}>
                     <CryptoIcon
                       src={holding.imageUrl}
                       symbol={holding.assetSymbol}
@@ -54,7 +60,7 @@
                       <strong>{holding.assetSymbol}</strong>
                       <small>{holding.assetName}</small>
                     </span>
-                  </div>
+                  </a>
                 </td>
                 <td data-label="Quantity">{formatCrypto(holding.quantity)}</td>
                 <td data-label="Average cost">{formatCurrency(holding.averageCost, currency)}</td>
@@ -68,9 +74,13 @@
                 <td data-label="Unrealized P/L" class={signedClass(holding.unrealizedProfit)}>
                   {formatCurrency(holding.unrealizedProfit, currency)}
                 </td>
+                <td data-label="Realized P/L" class={signedClass(holding.realizedProfit)}>
+                  {formatCurrency(holding.realizedProfit, currency)}
+                </td>
                 <td data-label="ROI" class={signedClass(holding.roiPercent)}>
                   {formatPercent(holding.roiPercent)}
                 </td>
+                <td data-label="Fees">{formatCurrency(holding.totalFees, currency)}</td>
                 <td data-label="Allocation">{formatPercent(holding.allocationPercent)}</td>
               </tr>
             {/each}
@@ -90,6 +100,10 @@
     align-items: center;
     display: flex;
     gap: 0.65rem;
+  }
+
+  .asset-cell:hover strong {
+    color: var(--accent);
   }
 
   .asset-cell span {

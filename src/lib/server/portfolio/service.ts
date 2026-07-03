@@ -5,7 +5,8 @@ import { db } from '$lib/server/db/client';
 import { assets, transactions } from '$lib/server/db/schema';
 import { listTransactionsWithAssets } from '$lib/server/transactions';
 import { getAppSettings } from '$lib/server/settings';
-import { getCurrentPricesForAssets, listPriceSnapshots } from '$lib/server/prices/cache';
+import { normalizeTransactions } from '$lib/server/fx/cache';
+import { getCachedPricesForAssets, listPriceSnapshots } from '$lib/server/prices/cache';
 
 function activeAssets(holdings: HoldingSummary[]) {
   const rows = db.select().from(assets).all();
@@ -60,22 +61,35 @@ function buildPortfolioSeries(
 export async function getPortfolioOverview(): Promise<PortfolioOverview> {
   const settings = getAppSettings();
   const transactionsWithAssets = listTransactionsWithAssets();
+  const normalizedTransactions = await normalizeTransactions(
+    transactionsWithAssets,
+    settings.baseCurrency
+  );
 
-  const preliminary = calculatePortfolio(transactionsWithAssets, [], settings.baseCurrency);
+  const preliminary = calculatePortfolio(normalizedTransactions, [], settings.baseCurrency);
   const priceAssets = activeAssets(preliminary.holdings);
-  const quotes = await getCurrentPricesForAssets(
+  const quotes = getCachedPricesForAssets(
     priceAssets,
     settings.baseCurrency,
     settings.priceProvider
   );
-  const calculated = calculatePortfolio(transactionsWithAssets, quotes, settings.baseCurrency);
+  const calculated = calculatePortfolio(normalizedTransactions, quotes, settings.baseCurrency);
   const priceWarnings = quotes.flatMap((quote) => (quote.warning ? [quote.warning] : []));
+  const fxWarnings = normalizedTransactions.flatMap((transaction) =>
+    transaction.fxWarning ? [transaction.fxWarning] : []
+  );
 
   return {
     ...calculated,
     portfolioSeries: buildPortfolioSeries(calculated.holdings, settings.baseCurrency),
-    priceWarnings
+    priceWarnings,
+    fxWarnings
   };
+}
+
+export async function getAssetOverview(assetId: string) {
+  const overview = await getPortfolioOverview();
+  return overview.holdings.find((holding) => holding.assetId === assetId) ?? null;
 }
 
 export function getTransactionCount(): number {

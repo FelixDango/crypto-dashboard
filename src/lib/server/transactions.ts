@@ -15,6 +15,8 @@ export type TransactionInput = {
   fiatCurrency: Currency;
   feeAmount?: string | null;
   feeCurrency?: Currency | null;
+  importBatchId?: string | null;
+  rowHash?: string | null;
   transactionDate: string;
   notes?: string | null;
 };
@@ -31,6 +33,8 @@ function mapTransaction(row: TransactionRow): TransactionRecord {
     fiatCurrency: row.fiatCurrency,
     feeAmount: row.feeAmount,
     feeCurrency: row.feeCurrency,
+    importBatchId: row.importBatchId,
+    rowHash: row.rowHash,
     transactionDate: row.transactionDate,
     notes: row.notes,
     createdAt: row.createdAt,
@@ -125,6 +129,8 @@ export function createTransaction(input: TransactionInput): TransactionRecord {
     fiatCurrency: input.fiatCurrency,
     feeAmount: input.feeAmount || null,
     feeCurrency: input.feeAmount ? (input.feeCurrency ?? input.fiatCurrency) : null,
+    importBatchId: input.importBatchId ?? null,
+    rowHash: input.rowHash ?? null,
     transactionDate: input.transactionDate,
     notes: input.notes || null,
     createdAt: now,
@@ -154,6 +160,8 @@ export function updateTransaction(id: string, input: TransactionInput): Transact
       fiatCurrency: input.fiatCurrency,
       feeAmount: input.feeAmount || null,
       feeCurrency: input.feeAmount ? (input.feeCurrency ?? input.fiatCurrency) : null,
+      importBatchId: input.importBatchId ?? existing.importBatchId,
+      rowHash: input.rowHash ?? null,
       transactionDate: input.transactionDate,
       notes: input.notes || null,
       updatedAt: now

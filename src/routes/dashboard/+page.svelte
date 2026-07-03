@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Plus, TriangleAlert } from '@lucide/svelte';
+  import { invalidateAll } from '$app/navigation';
+  import { Plus, RefreshCw, TriangleAlert } from '@lucide/svelte';
   import type { EChartsOption } from 'echarts';
   import Chart from '$lib/components/Chart.svelte';
   import { formatCurrency, formatPercent, signedClass } from '$lib/format';
@@ -11,9 +12,16 @@
 
   let allocationOption: EChartsOption;
   let valueOption: EChartsOption;
+  let refreshing = false;
+  let refreshError = '';
 
   $: overview = data.overview;
   $: currency = overview.totals.baseCurrency;
+  $: warnings = [...overview.priceWarnings, ...overview.fxWarnings];
+  $: chartSummary = `Portfolio value is ${formatCurrency(
+    overview.totals.currentValue,
+    currency
+  )}. Unrealized profit and loss is ${formatCurrency(overview.totals.unrealizedProfit, currency)}.`;
   $: allocationOption = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item' },
@@ -60,6 +68,20 @@
       }
     ]
   };
+
+  async function refreshPrices() {
+    refreshing = true;
+    refreshError = '';
+    try {
+      const response = await fetch('/api/prices/refresh', { method: 'POST' });
+      if (!response.ok) throw new Error('Price refresh failed.');
+      await invalidateAll();
+    } catch (error) {
+      refreshError = error instanceof Error ? error.message : 'Price refresh failed.';
+    } finally {
+      refreshing = false;
+    }
+  }
 </script>
 
 <section class="page">
@@ -68,16 +90,22 @@
       <h1>Dashboard</h1>
       <p class="muted">Average-cost portfolio view in {currency}</p>
     </div>
-    <a class="btn primary" href="/transactions">
-      <Plus size={18} />
-      Add transaction
-    </a>
+    <div class="toolbar">
+      <button class="btn" type="button" on:click={refreshPrices} disabled={refreshing}>
+        <RefreshCw size={18} />
+        {refreshing ? 'Refreshing' : 'Refresh prices'}
+      </button>
+      <a class="btn primary" href="/transactions">
+        <Plus size={18} />
+        Add transaction
+      </a>
+    </div>
   </div>
 
-  {#if overview.priceWarnings.length > 0}
+  {#if warnings.length > 0 || refreshError}
     <div class="notice warning-list">
       <TriangleAlert size={18} />
-      <span>{overview.priceWarnings[0]}</span>
+      <span>{refreshError || warnings[0]}</span>
     </div>
   {/if}
 
@@ -85,7 +113,9 @@
     <article class="card metric-card">
       <span class="label">Portfolio value</span>
       <strong class="value">{formatCurrency(overview.totals.currentValue, currency)}</strong>
-      <span class="meta">{overview.totals.stalePriceCount} stale prices</span>
+      <span class="meta"
+        >{overview.totals.stalePriceCount} stale · {overview.totals.missingPriceCount} missing</span
+      >
     </article>
     <article class="card metric-card">
       <span class="label">Invested</span>
@@ -104,7 +134,7 @@
       <strong class="value {signedClass(overview.totals.roiPercent)}">
         {formatPercent(overview.totals.roiPercent)}
       </strong>
-      <span class="meta">Average-cost basis</span>
+      <span class="meta">{overview.totals.fxWarningCount} FX warnings</span>
     </article>
   </div>
 
@@ -120,7 +150,7 @@
           <a class="btn primary" href="/transactions">Add your first buy</a>
         </div>
       {:else}
-        <Chart option={valueOption} label="Portfolio value chart" />
+        <Chart option={valueOption} label="Portfolio value chart" summary={chartSummary} />
       {/if}
     </section>
 
@@ -134,7 +164,11 @@
           <p class="muted">Allocation appears after holdings exist.</p>
         </div>
       {:else}
-        <Chart option={allocationOption} label="Portfolio allocation chart" />
+        <Chart
+          option={allocationOption}
+          label="Portfolio allocation chart"
+          summary={`${overview.allocation.length} assets are included in allocation.`}
+        />
       {/if}
     </section>
   </div>
@@ -168,10 +202,16 @@
 
     <section class="card performer">
       <span class="muted">Realized P/L</span>
-      <strong class={signedClass(overview.totals.realizedProfitApprox)}>
-        {formatCurrency(overview.totals.realizedProfitApprox, currency)}
+      <strong class={signedClass(overview.totals.realizedProfit)}>
+        {formatCurrency(overview.totals.realizedProfit, currency)}
       </strong>
-      <span class="muted">Approximate</span>
+      <span class="muted">Chronological average cost</span>
+    </section>
+
+    <section class="card performer">
+      <span class="muted">Total fees</span>
+      <strong>{formatCurrency(overview.totals.totalFees, currency)}</strong>
+      <span class="muted">Normalized into {currency}</span>
     </section>
   </div>
 </section>
@@ -182,6 +222,11 @@
     display: flex;
     gap: 0.6rem;
     margin-bottom: 1rem;
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
   }
 
   .dashboard-main {
@@ -196,7 +241,7 @@
   }
 
   .performer-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-top: 1rem;
   }
 
@@ -212,6 +257,12 @@
   @media (max-width: 820px) {
     .performer-grid {
       grid-template-columns: 1fr;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr;
+      width: 100%;
     }
   }
 </style>

@@ -2,9 +2,11 @@ import Decimal from 'decimal.js';
 import type {
   Currency,
   HoldingSummary,
+  NormalizedTransactionRecord,
   PortfolioOverview,
   PortfolioTotals,
   PriceQuote,
+  TransactionLedgerEntry,
   TransactionRecord
 } from '$lib/types';
 
@@ -15,12 +17,15 @@ type MutableHolding = {
   assetSymbol: string;
   assetName: string;
   imageUrl: string | null;
+  currentQuantity: Decimal;
+  costBasis: Decimal;
   totalBuyCost: Decimal;
-  totalQuantityBought: Decimal;
-  totalQuantitySold: Decimal;
-  sellProceeds: Decimal;
-  sellFees: Decimal;
+  realizedProfit: Decimal;
+  totalFees: Decimal;
+  ledger: TransactionLedgerEntry[];
 };
+
+type CalculationTransaction = TransactionRecord | NormalizedTransactionRecord;
 
 function zeroTotals(baseCurrency: Currency): PortfolioTotals {
   return {
@@ -30,8 +35,12 @@ function zeroTotals(baseCurrency: Currency): PortfolioTotals {
     totalBuyCost: '0',
     unrealizedProfit: '0',
     roiPercent: '0',
+    realizedProfit: '0',
     realizedProfitApprox: '0',
-    stalePriceCount: 0
+    totalFees: '0',
+    stalePriceCount: 0,
+    missingPriceCount: 0,
+    fxWarningCount: 0
   };
 }
 
@@ -45,14 +54,44 @@ function toText(value: Decimal): string {
   return value.toDecimalPlaces(12).toString();
 }
 
+function normalizedFiat(transaction: CalculationTransaction): Decimal {
+  return asDecimal(
+    'normalizedFiatAmount' in transaction
+      ? transaction.normalizedFiatAmount
+      : transaction.fiatAmount
+  );
+}
+
+function normalizedFee(transaction: CalculationTransaction): Decimal {
+  return asDecimal(
+    'normalizedFeeAmount' in transaction ? transaction.normalizedFeeAmount : transaction.feeAmount
+  );
+}
+
+function fxRate(transaction: CalculationTransaction): string {
+  return 'fxRate' in transaction ? transaction.fxRate : '1';
+}
+
+function fxSource(transaction: CalculationTransaction): string {
+  return 'fxSource' in transaction ? transaction.fxSource : 'same-currency';
+}
+
+function chronological(transactions: CalculationTransaction[]): CalculationTransaction[] {
+  return [...transactions].sort((a, b) => {
+    const byDate = new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime();
+    if (byDate !== 0) return byDate;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+}
+
 export function calculateHoldings(
-  transactions: TransactionRecord[],
+  transactions: CalculationTransaction[],
   quotes: PriceQuote[]
 ): HoldingSummary[] {
   const quoteByAsset = new Map(quotes.map((quote) => [quote.assetId, quote]));
   const grouped = new Map<string, MutableHolding>();
 
-  for (const transaction of transactions) {
+  for (const transaction of chronological(transactions)) {
     const existing =
       grouped.get(transaction.assetId) ??
       ({
@@ -60,63 +99,108 @@ export function calculateHoldings(
         assetSymbol: transaction.assetSymbol,
         assetName: transaction.assetName,
         imageUrl: transaction.asset?.imageUrl ?? null,
+        currentQuantity: new Decimal(0),
+        costBasis: new Decimal(0),
         totalBuyCost: new Decimal(0),
-        totalQuantityBought: new Decimal(0),
-        totalQuantitySold: new Decimal(0),
-        sellProceeds: new Decimal(0),
-        sellFees: new Decimal(0)
+        realizedProfit: new Decimal(0),
+        totalFees: new Decimal(0),
+        ledger: []
       } satisfies MutableHolding);
 
     const quantity = asDecimal(transaction.quantity);
-    const fiatAmount = asDecimal(transaction.fiatAmount);
-    const feeAmount = asDecimal(transaction.feeAmount);
+    const fiatAmount = normalizedFiat(transaction);
+    const feeAmount = normalizedFee(transaction);
+    const averageCostBefore = existing.currentQuantity.gt(0)
+      ? existing.costBasis.div(existing.currentQuantity)
+      : new Decimal(0);
+    let realizedProceeds = new Decimal(0);
+    let realizedCostBasis = new Decimal(0);
+    let realizedProfit = new Decimal(0);
 
     if (transaction.type === 'buy') {
-      existing.totalBuyCost = existing.totalBuyCost.plus(fiatAmount).plus(feeAmount);
-      existing.totalQuantityBought = existing.totalQuantityBought.plus(quantity);
+      const buyCost = fiatAmount.plus(feeAmount);
+      existing.totalBuyCost = existing.totalBuyCost.plus(buyCost);
+      existing.costBasis = existing.costBasis.plus(buyCost);
+      existing.currentQuantity = existing.currentQuantity.plus(quantity);
     } else {
-      existing.totalQuantitySold = existing.totalQuantitySold.plus(quantity);
-      existing.sellProceeds = existing.sellProceeds.plus(fiatAmount.minus(feeAmount));
-      existing.sellFees = existing.sellFees.plus(feeAmount);
+      realizedProceeds = fiatAmount.minus(feeAmount);
+      realizedCostBasis = Decimal.min(quantity, existing.currentQuantity).mul(averageCostBefore);
+      realizedProfit = realizedProceeds.minus(realizedCostBasis);
+      existing.realizedProfit = existing.realizedProfit.plus(realizedProfit);
+      existing.costBasis = Decimal.max(existing.costBasis.minus(realizedCostBasis), 0);
+      existing.currentQuantity = Decimal.max(existing.currentQuantity.minus(quantity), 0);
+      if (existing.currentQuantity.eq(0)) {
+        existing.costBasis = new Decimal(0);
+      }
     }
+
+    existing.totalFees = existing.totalFees.plus(feeAmount);
+    const runningAverageCost = existing.currentQuantity.gt(0)
+      ? existing.costBasis.div(existing.currentQuantity)
+      : new Decimal(0);
+    existing.ledger.push({
+      transactionId: transaction.id,
+      assetId: transaction.assetId,
+      assetSymbol: transaction.assetSymbol,
+      assetName: transaction.assetName,
+      type: transaction.type,
+      quantity: transaction.quantity,
+      transactionDate: transaction.transactionDate,
+      fiatAmount: transaction.fiatAmount,
+      fiatCurrency: transaction.fiatCurrency,
+      normalizedFiatAmount: toText(fiatAmount),
+      feeAmount: toText(feeAmount),
+      normalizedFeeAmount: toText(feeAmount),
+      fxRate: fxRate(transaction),
+      fxSource: fxSource(transaction),
+      runningQuantity: toText(existing.currentQuantity),
+      runningAverageCost: toText(runningAverageCost),
+      runningCostBasis: toText(existing.costBasis),
+      realizedProceeds: toText(realizedProceeds),
+      realizedCostBasis: toText(realizedCostBasis),
+      realizedProfit: toText(realizedProfit),
+      totalFees: toText(existing.totalFees)
+    });
 
     grouped.set(transaction.assetId, existing);
   }
 
   const preliminary = [...grouped.values()].map((holding) => {
-    const averageCost = holding.totalQuantityBought.gt(0)
-      ? holding.totalBuyCost.div(holding.totalQuantityBought)
+    const averageCost = holding.currentQuantity.gt(0)
+      ? holding.costBasis.div(holding.currentQuantity)
       : new Decimal(0);
-    const currentQuantity = Decimal.max(
-      holding.totalQuantityBought.minus(holding.totalQuantitySold),
-      new Decimal(0)
-    );
     const quote = quoteByAsset.get(holding.assetId);
     const currentPrice = asDecimal(quote?.price);
-    const currentValue = currentQuantity.mul(currentPrice);
-    const costBasis = currentQuantity.mul(averageCost);
-    const unrealizedProfit = currentValue.minus(costBasis);
-    const roiPercent = costBasis.gt(0) ? unrealizedProfit.div(costBasis).mul(100) : new Decimal(0);
-    const realizedProfitApprox = holding.sellProceeds.minus(
-      holding.totalQuantitySold.mul(averageCost)
-    );
+    const currentValue = holding.currentQuantity.mul(currentPrice);
+    const unrealizedProfit = currentValue.minus(holding.costBasis);
+    const roiPercent = holding.costBasis.gt(0)
+      ? unrealizedProfit.div(holding.costBasis).mul(100)
+      : new Decimal(0);
+    const priceStatus: HoldingSummary['priceStatus'] =
+      !quote || quote.capturedAt === null ? 'missing' : quote.stale ? 'stale' : 'fresh';
 
     return {
       assetId: holding.assetId,
       assetSymbol: holding.assetSymbol,
       assetName: holding.assetName,
       imageUrl: holding.imageUrl,
-      quantity: toText(currentQuantity),
+      quantity: toText(holding.currentQuantity),
       averageCost: toText(averageCost),
       currentPrice: toText(currentPrice),
       currentValue: toText(currentValue),
       totalBuyCost: toText(holding.totalBuyCost),
-      costBasis: toText(costBasis),
+      costBasis: toText(holding.costBasis),
       unrealizedProfit: toText(unrealizedProfit),
       roiPercent: toText(roiPercent),
-      realizedProfitApprox: toText(realizedProfitApprox),
+      realizedProfit: toText(holding.realizedProfit),
+      realizedProfitApprox: toText(holding.realizedProfit),
+      totalFees: toText(holding.totalFees),
       allocationPercent: '0',
-      stalePrice: quote?.stale ?? false
+      stalePrice: quote?.stale ?? false,
+      priceSource: quote?.source ?? null,
+      priceCapturedAt: quote?.capturedAt ?? null,
+      priceStatus,
+      ledger: holding.ledger
     } satisfies HoldingSummary;
   });
 
@@ -136,7 +220,7 @@ export function calculateHoldings(
 }
 
 export function calculatePortfolio(
-  transactions: TransactionRecord[],
+  transactions: CalculationTransaction[],
   quotes: PriceQuote[],
   baseCurrency: Currency
 ): Pick<
@@ -158,11 +242,18 @@ export function calculatePortfolio(
       new Decimal(accumulator.unrealizedProfit).plus(holding.unrealizedProfit)
     );
     accumulator.realizedProfitApprox = toText(
-      new Decimal(accumulator.realizedProfitApprox).plus(holding.realizedProfitApprox)
+      new Decimal(accumulator.realizedProfitApprox).plus(holding.realizedProfit)
     );
+    accumulator.realizedProfit = accumulator.realizedProfitApprox;
+    accumulator.totalFees = toText(new Decimal(accumulator.totalFees).plus(holding.totalFees));
     accumulator.stalePriceCount += holding.stalePrice ? 1 : 0;
+    accumulator.missingPriceCount += holding.priceStatus === 'missing' ? 1 : 0;
     return accumulator;
   }, zeroTotals(baseCurrency));
+
+  totals.fxWarningCount = transactions.filter(
+    (transaction) => 'fxWarning' in transaction && transaction.fxWarning
+  ).length;
 
   const investedAmount = new Decimal(totals.investedAmount);
   totals.roiPercent = investedAmount.gt(0)

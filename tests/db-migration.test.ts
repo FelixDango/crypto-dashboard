@@ -18,6 +18,15 @@ describe('database migrations', () => {
     expect(tables).toContain('assets');
     expect(tables).toContain('transactions');
     expect(tables).toContain('price_snapshots');
+    expect(tables).toContain('fx_rates');
+    expect(tables).toContain('import_batches');
     expect(tables).toContain('settings');
+
+    const transactionColumns = sqlite
+      .prepare('PRAGMA table_info(transactions)')
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(transactionColumns).toContain('import_batch_id');
+    expect(transactionColumns).toContain('row_hash');
   });
 });

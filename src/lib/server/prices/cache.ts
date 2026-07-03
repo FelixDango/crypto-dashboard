@@ -37,7 +37,35 @@ function snapshotIsFresh(snapshot: SnapshotRow): boolean {
   return ageMs <= getPriceCacheTtlSeconds() * 1000;
 }
 
-export async function getCurrentPricesForAssets(
+export function getCachedPricesForAssets(
+  assetRecords: AssetRecord[],
+  currency: Currency,
+  providerId = 'coingecko'
+): PriceQuote[] {
+  return assetRecords.map((asset) => {
+    const snapshot = latestSnapshot(asset.id, currency);
+    if (!snapshot) {
+      return {
+        assetId: asset.id,
+        price: '0',
+        currency,
+        source: providerId,
+        capturedAt: null,
+        stale: true,
+        warning: `${asset.symbol} has no cached price yet.`
+      };
+    }
+
+    const stale = !snapshotIsFresh(snapshot);
+    return mapSnapshot(
+      snapshot,
+      stale,
+      stale ? `${asset.symbol} is using a stale cached price.` : undefined
+    );
+  });
+}
+
+export async function refreshCurrentPricesForAssets(
   assetRecords: AssetRecord[],
   currency: Currency,
   providerId = 'coingecko'
@@ -144,6 +172,14 @@ export async function getCurrentPricesForAssets(
 
     return [...freshQuotes, ...fallbackQuotes];
   }
+}
+
+export async function getCurrentPricesForAssets(
+  assetRecords: AssetRecord[],
+  currency: Currency,
+  providerId = 'coingecko'
+): Promise<PriceQuote[]> {
+  return refreshCurrentPricesForAssets(assetRecords, currency, providerId);
 }
 
 export async function getHistoricalPriceCached(

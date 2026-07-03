@@ -5,6 +5,7 @@
 
   export let option: EChartsOption;
   export let label = 'Chart';
+  export let summary = '';
 
   let element: HTMLDivElement;
   let chart: EChartsType | null = null;
@@ -58,11 +59,23 @@
 </script>
 
 <div class="chart" bind:this={element} aria-label={label}></div>
+{#if summary}
+  <p class="sr-only">{summary}</p>
+{/if}
 
 <style>
   .chart {
     min-height: 280px;
     width: 100%;
+  }
+
+  .sr-only {
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
   }
 
   @media (max-width: 680px) {

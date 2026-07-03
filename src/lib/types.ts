@@ -23,6 +23,8 @@ export type TransactionRecord = {
   fiatCurrency: Currency;
   feeAmount: string | null;
   feeCurrency: Currency | null;
+  importBatchId: string | null;
+  rowHash: string | null;
   transactionDate: string;
   notes: string | null;
   createdAt: string;
@@ -40,6 +42,40 @@ export type PriceQuote = {
   warning?: string;
 };
 
+export type NormalizedTransactionRecord = TransactionRecord & {
+  normalizedFiatAmount: string;
+  normalizedFeeAmount: string;
+  fxRate: string;
+  fxSource: string;
+  fxDate: string;
+  fxCapturedAt: string | null;
+  fxWarning?: string;
+};
+
+export type TransactionLedgerEntry = {
+  transactionId: string;
+  assetId: string;
+  assetSymbol: string;
+  assetName: string;
+  type: TransactionType;
+  quantity: string;
+  transactionDate: string;
+  fiatAmount: string;
+  fiatCurrency: Currency;
+  normalizedFiatAmount: string;
+  feeAmount: string;
+  normalizedFeeAmount: string;
+  fxRate: string;
+  fxSource: string;
+  runningQuantity: string;
+  runningAverageCost: string;
+  runningCostBasis: string;
+  realizedProceeds: string;
+  realizedCostBasis: string;
+  realizedProfit: string;
+  totalFees: string;
+};
+
 export type HoldingSummary = {
   assetId: string;
   assetSymbol: string;
@@ -53,9 +89,15 @@ export type HoldingSummary = {
   costBasis: string;
   unrealizedProfit: string;
   roiPercent: string;
+  realizedProfit: string;
   realizedProfitApprox: string;
+  totalFees: string;
   allocationPercent: string;
   stalePrice: boolean;
+  priceSource: string | null;
+  priceCapturedAt: string | null;
+  priceStatus: 'fresh' | 'stale' | 'missing';
+  ledger: TransactionLedgerEntry[];
 };
 
 export type PortfolioTotals = {
@@ -65,8 +107,12 @@ export type PortfolioTotals = {
   totalBuyCost: string;
   unrealizedProfit: string;
   roiPercent: string;
+  realizedProfit: string;
   realizedProfitApprox: string;
+  totalFees: string;
   stalePriceCount: number;
+  missingPriceCount: number;
+  fxWarningCount: number;
 };
 
 export type ChartPoint = {
@@ -80,6 +126,7 @@ export type PortfolioOverview = {
   allocation: ChartPoint[];
   portfolioSeries: ChartPoint[];
   priceWarnings: string[];
+  fxWarnings: string[];
   bestPerformer: HoldingSummary | null;
   worstPerformer: HoldingSummary | null;
 };

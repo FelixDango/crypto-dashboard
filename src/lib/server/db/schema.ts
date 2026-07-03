@@ -1,4 +1,4 @@
-import { index, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 type Currency = 'EUR' | 'USD';
 type TransactionType = 'buy' | 'sell';
@@ -39,6 +39,8 @@ export const transactions = sqliteTable(
     fiatCurrency: text('fiat_currency').$type<Currency>().notNull(),
     feeAmount: text('fee_amount'),
     feeCurrency: text('fee_currency').$type<Currency>(),
+    importBatchId: text('import_batch_id'),
+    rowHash: text('row_hash'),
     transactionDate: text('transaction_date').notNull(),
     notes: text('notes'),
     createdAt: text('created_at').notNull(),
@@ -46,9 +48,20 @@ export const transactions = sqliteTable(
   },
   (table) => ({
     assetDateIndex: index('transactions_asset_date_idx').on(table.assetId, table.transactionDate),
-    typeIndex: index('transactions_type_idx').on(table.type)
+    typeIndex: index('transactions_type_idx').on(table.type),
+    rowHashUnique: uniqueIndex('transactions_row_hash_unique').on(table.rowHash)
   })
 );
+
+export const importBatches = sqliteTable('import_batches', {
+  id: text('id').primaryKey(),
+  filename: text('filename'),
+  totalRows: integer('total_rows').notNull(),
+  importedRows: integer('imported_rows').notNull(),
+  duplicateRows: integer('duplicate_rows').notNull(),
+  status: text('status').notNull(),
+  createdAt: text('created_at').notNull()
+});
 
 export const priceSnapshots = sqliteTable(
   'price_snapshots',
@@ -71,6 +84,27 @@ export const priceSnapshots = sqliteTable(
   })
 );
 
+export const fxRates = sqliteTable(
+  'fx_rates',
+  {
+    id: text('id').primaryKey(),
+    rateDate: text('rate_date').notNull(),
+    baseCurrency: text('base_currency').$type<Currency>().notNull(),
+    quoteCurrency: text('quote_currency').$type<Currency>().notNull(),
+    provider: text('provider').notNull(),
+    rate: text('rate').notNull(),
+    capturedAt: text('captured_at').notNull()
+  },
+  (table) => ({
+    rateLookupUnique: uniqueIndex('fx_rates_lookup_unique').on(
+      table.rateDate,
+      table.baseCurrency,
+      table.quoteCurrency,
+      table.provider
+    )
+  })
+);
+
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull()
@@ -81,4 +115,6 @@ export type NewAssetRow = typeof assets.$inferInsert;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type PriceSnapshotRow = typeof priceSnapshots.$inferSelect;
+export type FxRateRow = typeof fxRates.$inferSelect;
+export type ImportBatchRow = typeof importBatches.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;
