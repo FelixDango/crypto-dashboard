@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import { formatCrypto, formatCurrency, formatPercent, signedClass } from '$lib/format';
   import type { PortfolioOverview } from '$lib/types';
 
@@ -24,8 +25,8 @@
         <a class="btn primary" href="/transactions">Add transaction</a>
       </div>
     {:else}
-      <div class="table-wrap">
-        <table>
+      <div class="table-wrap mobile-cards">
+        <table class="mobile-card-table">
           <thead>
             <tr>
               <th>Asset</th>
@@ -41,31 +42,36 @@
           <tbody>
             {#each data.overview.holdings as holding}
               <tr>
-                <td>
+                <td class="primary-cell" data-label="Asset">
                   <div class="asset-cell">
-                    {#if holding.imageUrl}
-                      <img src={holding.imageUrl} alt="" />
-                    {/if}
+                    <CryptoIcon
+                      src={holding.imageUrl}
+                      symbol={holding.assetSymbol}
+                      name={holding.assetName}
+                      size={30}
+                    />
                     <span>
                       <strong>{holding.assetSymbol}</strong>
                       <small>{holding.assetName}</small>
                     </span>
                   </div>
                 </td>
-                <td>{formatCrypto(holding.quantity)}</td>
-                <td>{formatCurrency(holding.averageCost, currency)}</td>
-                <td>
+                <td data-label="Quantity">{formatCrypto(holding.quantity)}</td>
+                <td data-label="Average cost">{formatCurrency(holding.averageCost, currency)}</td>
+                <td data-label="Current price">
                   {formatCurrency(holding.currentPrice, currency)}
                   {#if holding.stalePrice}
                     <span class="stale">stale</span>
                   {/if}
                 </td>
-                <td>{formatCurrency(holding.currentValue, currency)}</td>
-                <td class={signedClass(holding.unrealizedProfit)}>
+                <td data-label="Value">{formatCurrency(holding.currentValue, currency)}</td>
+                <td data-label="Unrealized P/L" class={signedClass(holding.unrealizedProfit)}>
                   {formatCurrency(holding.unrealizedProfit, currency)}
                 </td>
-                <td class={signedClass(holding.roiPercent)}>{formatPercent(holding.roiPercent)}</td>
-                <td>{formatPercent(holding.allocationPercent)}</td>
+                <td data-label="ROI" class={signedClass(holding.roiPercent)}>
+                  {formatPercent(holding.roiPercent)}
+                </td>
+                <td data-label="Allocation">{formatPercent(holding.allocationPercent)}</td>
               </tr>
             {/each}
           </tbody>
@@ -84,12 +90,6 @@
     align-items: center;
     display: flex;
     gap: 0.65rem;
-  }
-
-  .asset-cell img {
-    border-radius: 50%;
-    height: 30px;
-    width: 30px;
   }
 
   .asset-cell span {

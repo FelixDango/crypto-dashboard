@@ -14,7 +14,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     [
       "default-src 'self'",
       "connect-src 'self'",
-      "img-src 'self' https://assets.coingecko.com data:",
+      "img-src 'self' data:",
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "font-src 'self' data:",

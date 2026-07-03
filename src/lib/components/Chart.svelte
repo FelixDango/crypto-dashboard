@@ -12,6 +12,7 @@
   onMount(() => {
     const resize = () => chart?.resize();
     let disposed = false;
+    let observer: ResizeObserver | null = null;
 
     async function mountChart() {
       const [core, charts, components, renderers] = await Promise.all([
@@ -34,6 +35,10 @@
       chart = mountedChart;
       mountedChart.setOption(option);
       window.addEventListener('resize', resize);
+      if ('ResizeObserver' in window) {
+        observer = new ResizeObserver(resize);
+        observer.observe(element);
+      }
     }
 
     void mountChart();
@@ -41,6 +46,7 @@
     return () => {
       disposed = true;
       window.removeEventListener('resize', resize);
+      observer?.disconnect();
       chart?.dispose();
       chart = null;
     };
@@ -57,5 +63,11 @@
   .chart {
     min-height: 280px;
     width: 100%;
+  }
+
+  @media (max-width: 680px) {
+    .chart {
+      min-height: 240px;
+    }
   }
 </style>

@@ -3,27 +3,9 @@ import type { ChartPoint, HoldingSummary, PortfolioOverview } from '$lib/types';
 import { calculatePortfolio } from '$lib/portfolio/calculations';
 import { db } from '$lib/server/db/client';
 import { assets, transactions } from '$lib/server/db/schema';
-import { listTransactions } from '$lib/server/transactions';
+import { listTransactionsWithAssets } from '$lib/server/transactions';
 import { getAppSettings } from '$lib/server/settings';
 import { getCurrentPricesForAssets, listPriceSnapshots } from '$lib/server/prices/cache';
-
-function withAssetImages() {
-  const assetRows = db.select().from(assets).all();
-  const imageByAsset = new Map(assetRows.map((asset) => [asset.id, asset.imageUrl]));
-  return listTransactions().map((transaction) => ({
-    ...transaction,
-    asset: {
-      id: transaction.assetId,
-      provider: 'coingecko',
-      providerCoinId: transaction.assetId.split(':').slice(1).join(':'),
-      symbol: transaction.assetSymbol,
-      name: transaction.assetName,
-      imageUrl: imageByAsset.get(transaction.assetId) ?? null,
-      createdAt: transaction.createdAt,
-      updatedAt: transaction.updatedAt
-    }
-  }));
-}
 
 function activeAssets(holdings: HoldingSummary[]) {
   const rows = db.select().from(assets).all();
@@ -77,7 +59,7 @@ function buildPortfolioSeries(
 
 export async function getPortfolioOverview(): Promise<PortfolioOverview> {
   const settings = getAppSettings();
-  const transactionsWithAssets = withAssetImages();
+  const transactionsWithAssets = listTransactionsWithAssets();
 
   const preliminary = calculatePortfolio(transactionsWithAssets, [], settings.baseCurrency);
   const priceAssets = activeAssets(preliminary.holdings);

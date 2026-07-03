@@ -1,9 +1,9 @@
 import Decimal from 'decimal.js';
 import { desc, eq, ne } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import type { Currency, TransactionRecord, TransactionType } from '$lib/types';
+import type { AssetRecord, Currency, TransactionRecord, TransactionType } from '$lib/types';
 import { db } from './db/client';
-import { transactions, type TransactionRow } from './db/schema';
+import { assets, transactions, type AssetRow, type TransactionRow } from './db/schema';
 import { UserInputError } from './errors';
 import { type AssetInput, upsertAsset } from './assets';
 
@@ -38,6 +38,33 @@ function mapTransaction(row: TransactionRow): TransactionRecord {
   };
 }
 
+function mapAsset(row: AssetRow): AssetRecord {
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerCoinId: row.providerCoinId,
+    symbol: row.symbol,
+    name: row.name,
+    imageUrl: row.imageUrl,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function attachAssets(records: TransactionRecord[]): TransactionRecord[] {
+  const assetById = new Map(
+    db
+      .select()
+      .from(assets)
+      .all()
+      .map((asset) => [asset.id, mapAsset(asset)])
+  );
+  return records.map((transaction) => ({
+    ...transaction,
+    asset: assetById.get(transaction.assetId) ?? null
+  }));
+}
+
 export function listTransactions(): TransactionRecord[] {
   return db
     .select()
@@ -45,6 +72,10 @@ export function listTransactions(): TransactionRecord[] {
     .orderBy(desc(transactions.transactionDate), desc(transactions.createdAt))
     .all()
     .map(mapTransaction);
+}
+
+export function listTransactionsWithAssets(): TransactionRecord[] {
+  return attachAssets(listTransactions());
 }
 
 export function getTransaction(id: string): TransactionRecord | null {

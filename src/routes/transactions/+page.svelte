@@ -3,6 +3,7 @@
   import type { SubmitFunction } from '@sveltejs/kit';
   import { Download, Pencil, Plus, Search, Trash2, Upload, X } from '@lucide/svelte';
   import AssetSearch from '$lib/components/AssetSearch.svelte';
+  import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import { formatCurrency, formatCrypto, formatDate } from '$lib/format';
   import type { TransactionRecord } from '$lib/types';
 
@@ -88,8 +89,8 @@
         >
       </div>
     {:else}
-      <div class="table-wrap">
-        <table>
+      <div class="table-wrap mobile-cards">
+        <table class="mobile-card-table">
           <thead>
             <tr>
               <th>Date</th>
@@ -105,12 +106,22 @@
           <tbody>
             {#each filtered as transaction}
               <tr>
-                <td>{formatDate(transaction.transactionDate)}</td>
-                <td>
-                  <strong>{transaction.assetSymbol}</strong>
-                  <span class="muted asset-name">{transaction.assetName}</span>
+                <td data-label="Date">{formatDate(transaction.transactionDate)}</td>
+                <td class="primary-cell" data-label="Asset">
+                  <div class="transaction-asset-cell">
+                    <CryptoIcon
+                      src={transaction.asset?.imageUrl}
+                      symbol={transaction.assetSymbol}
+                      name={transaction.assetName}
+                      size={28}
+                    />
+                    <span>
+                      <strong>{transaction.assetSymbol}</strong>
+                      <span class="muted asset-name">{transaction.assetName}</span>
+                    </span>
+                  </div>
                 </td>
-                <td>
+                <td data-label="Type">
                   <span
                     class:type-buy={transaction.type === 'buy'}
                     class:type-sell={transaction.type === 'sell'}
@@ -118,9 +129,11 @@
                     {transaction.type}
                   </span>
                 </td>
-                <td>{formatCrypto(transaction.quantity)}</td>
-                <td>{formatCurrency(transaction.fiatAmount, transaction.fiatCurrency)}</td>
-                <td>
+                <td data-label="Quantity">{formatCrypto(transaction.quantity)}</td>
+                <td data-label="Fiat"
+                  >{formatCurrency(transaction.fiatAmount, transaction.fiatCurrency)}</td
+                >
+                <td data-label="Fee">
                   {#if transaction.feeAmount}
                     {formatCurrency(
                       transaction.feeAmount,
@@ -130,8 +143,8 @@
                     <span class="muted">-</span>
                   {/if}
                 </td>
-                <td class="notes">{transaction.notes ?? '-'}</td>
-                <td>
+                <td data-label="Notes" class="notes">{transaction.notes ?? '-'}</td>
+                <td data-label="Actions">
                   <div class="row-actions">
                     <button
                       class="btn icon"
@@ -236,6 +249,7 @@
               initialProviderCoinId={editing.assetId.split(':').slice(1).join(':')}
               initialSymbol={editing.assetSymbol}
               initialName={editing.assetName}
+              initialImageUrl={editing.asset?.imageUrl}
             />
           </div>
           <div class="field">
@@ -392,6 +406,16 @@
     padding: 0;
   }
 
+  .transaction-asset-cell {
+    align-items: center;
+    display: flex;
+    gap: 0.65rem;
+  }
+
+  .transaction-asset-cell > span {
+    display: grid;
+  }
+
   .asset-name {
     display: block;
     font-size: 0.82rem;
@@ -430,13 +454,13 @@
   }
 
   @media (max-width: 720px) {
-    .controls,
-    .toolbar {
+    .controls {
       grid-template-columns: 1fr;
     }
 
     .toolbar {
       display: grid;
+      grid-template-columns: 1fr;
     }
   }
 </style>

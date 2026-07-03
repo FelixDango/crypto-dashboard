@@ -94,6 +94,7 @@
       sans-serif;
     margin: 0;
     min-height: 100vh;
+    overflow-x: hidden;
   }
 
   :global(a) {
@@ -263,6 +264,7 @@
     font-size: clamp(1.45rem, 2.4vw, 2rem);
     font-weight: 800;
     line-height: 1.05;
+    overflow-wrap: anywhere;
   }
 
   :global(.metric-card .meta) {
@@ -293,6 +295,7 @@
     gap: 0.5rem;
     justify-content: center;
     min-height: 2.55rem;
+    min-width: 0;
     padding: 0 0.9rem;
   }
 
@@ -453,6 +456,12 @@
     margin-top: 1rem;
   }
 
+  @media (max-width: 1180px) {
+    :global(.metric-grid) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
   @media (max-width: 980px) {
     .app-shell {
       grid-template-columns: 1fr;
@@ -460,10 +469,13 @@
 
     .sidebar {
       align-items: center;
+      backdrop-filter: blur(14px);
       flex-direction: row;
       gap: 0.75rem;
       height: auto;
       overflow-x: auto;
+      padding: 0.8rem max(0.85rem, env(safe-area-inset-right)) 0.8rem
+        max(0.85rem, env(safe-area-inset-left));
       position: sticky;
       z-index: 30;
     }
@@ -475,26 +487,169 @@
 
     nav {
       display: flex;
+      flex: 1;
+      justify-content: flex-end;
       min-width: max-content;
     }
 
-    :global(.metric-grid),
     :global(.two-column) {
       grid-template-columns: 1fr;
     }
   }
 
   @media (max-width: 680px) {
+    .sidebar {
+      gap: 0.5rem;
+      padding-bottom: 0.65rem;
+      padding-top: 0.65rem;
+    }
+
+    .brand,
+    .brand-mark {
+      min-height: 2.35rem;
+    }
+
+    .brand-mark {
+      height: 2.25rem;
+      width: 2.25rem;
+    }
+
+    nav {
+      justify-content: space-between;
+      min-width: 0;
+    }
+
+    nav a {
+      justify-content: center;
+      min-height: 2.4rem;
+      min-width: 2.4rem;
+      padding: 0;
+    }
+
     :global(.page) {
-      padding: 1rem;
+      padding: 0.9rem 0.85rem 1.25rem;
     }
 
     :global(.page-header) {
       display: grid;
+      gap: 0.85rem;
+    }
+
+    :global(.page-header > .btn),
+    :global(.page-header .toolbar),
+    :global(.page-header .toolbar .btn) {
+      width: 100%;
+    }
+
+    :global(.metric-grid) {
+      grid-template-columns: 1fr;
+    }
+
+    :global(.card) {
+      padding: 0.85rem;
     }
 
     :global(.field-grid) {
       grid-template-columns: 1fr;
+    }
+
+    :global(.modal-backdrop) {
+      align-items: flex-start;
+      overflow: auto;
+      padding: 0.75rem;
+    }
+
+    :global(.modal) {
+      max-height: calc(100dvh - 1.5rem);
+      overflow: auto;
+      padding: 0.85rem;
+    }
+
+    :global(.modal-actions) {
+      background: var(--surface);
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      bottom: -0.85rem;
+      padding-top: 0.75rem;
+      position: sticky;
+    }
+
+    :global(.mobile-cards) {
+      border: 0;
+      overflow: visible;
+    }
+
+    :global(.mobile-card-table) {
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 0;
+    }
+
+    :global(.mobile-card-table),
+    :global(.mobile-card-table thead),
+    :global(.mobile-card-table tbody),
+    :global(.mobile-card-table tr),
+    :global(.mobile-card-table td) {
+      display: block;
+      width: 100%;
+    }
+
+    :global(.mobile-card-table thead) {
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      position: absolute;
+      white-space: nowrap;
+      width: 1px;
+    }
+
+    :global(.mobile-card-table tbody) {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    :global(.mobile-card-table tr) {
+      background: rgba(22, 27, 32, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: grid;
+      gap: 0.65rem;
+      padding: 0.85rem;
+    }
+
+    :global(.mobile-card-table td) {
+      border: 0;
+      display: grid;
+      gap: 0.18rem;
+      padding: 0;
+      white-space: normal;
+    }
+
+    :global(.mobile-card-table td::before) {
+      color: var(--subtle);
+      content: attr(data-label);
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    :global(.mobile-card-table td.primary-cell) {
+      padding-bottom: 0.1rem;
+    }
+
+    :global(.mobile-card-table td.primary-cell::before),
+    :global(.mobile-card-table td[data-label='Actions']::before) {
+      display: none;
+    }
+
+    :global(.mobile-card-table .row-actions) {
+      justify-content: flex-end;
+    }
+
+    :global(.mobile-card-table .notes) {
+      max-width: none;
+      overflow: visible;
+      text-overflow: unset;
     }
 
     nav a span {

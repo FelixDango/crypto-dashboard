@@ -5,6 +5,7 @@ import {
   createTransaction,
   deleteTransaction,
   listTransactions,
+  listTransactionsWithAssets,
   updateTransaction
 } from '$lib/server/transactions';
 import { getAppSettings } from '$lib/server/settings';
@@ -20,7 +21,7 @@ function actionError(error: unknown) {
 
 export function load() {
   return {
-    transactions: listTransactions(),
+    transactions: listTransactionsWithAssets(),
     settings: getAppSettings()
   };
 }

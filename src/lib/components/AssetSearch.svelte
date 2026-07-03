@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Search } from '@lucide/svelte';
+  import CryptoIcon from './CryptoIcon.svelte';
 
   type AssetChoice = {
     id: string;
@@ -82,9 +83,7 @@
     <div class="asset-results">
       {#each results as asset}
         <button type="button" class="asset-choice" on:click={() => choose(asset)}>
-          {#if asset.imageUrl}
-            <img src={asset.imageUrl} alt="" />
-          {/if}
+          <CryptoIcon src={asset.imageUrl} symbol={asset.symbol} name={asset.name} size={28} />
           <span>
             <strong>{asset.symbol}</strong>
             <small>{asset.name}</small>
@@ -160,12 +159,6 @@
 
   .asset-choice:hover {
     background: var(--surface-soft);
-  }
-
-  .asset-choice img {
-    border-radius: 50%;
-    height: 28px;
-    width: 28px;
   }
 
   .asset-choice span {

@@ -17,25 +17,25 @@ export const COMMON_ASSETS: AssetInput[] = [
     providerCoinId: 'bitcoin',
     symbol: 'BTC',
     name: 'Bitcoin',
-    imageUrl: 'https://assets.coingecko.com/coins/images/1/large/bitcoin.png'
+    imageUrl: 'https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png'
   },
   {
     providerCoinId: 'ethereum',
     symbol: 'ETH',
     name: 'Ethereum',
-    imageUrl: 'https://assets.coingecko.com/coins/images/279/large/ethereum.png'
+    imageUrl: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png'
   },
   {
     providerCoinId: 'solana',
     symbol: 'SOL',
     name: 'Solana',
-    imageUrl: 'https://assets.coingecko.com/coins/images/4128/large/solana.png'
+    imageUrl: 'https://coin-images.coingecko.com/coins/images/4128/large/solana.png'
   },
   {
     providerCoinId: 'chainlink',
     symbol: 'LINK',
     name: 'Chainlink',
-    imageUrl: 'https://assets.coingecko.com/coins/images/877/large/chainlink-new-logo.png'
+    imageUrl: 'https://coin-images.coingecko.com/coins/images/877/large/chainlink-new-logo.png'
   }
 ];
 
@@ -76,16 +76,18 @@ export function upsertAsset(input: AssetInput): AssetRecord {
     updatedAt: now
   };
 
+  const updateSet = {
+    symbol: asset.symbol,
+    name: asset.name,
+    updatedAt: now,
+    ...(asset.imageUrl ? { imageUrl: asset.imageUrl } : {})
+  };
+
   db.insert(assets)
     .values(asset)
     .onConflictDoUpdate({
       target: [assets.provider, assets.providerCoinId],
-      set: {
-        symbol: asset.symbol,
-        name: asset.name,
-        imageUrl: asset.imageUrl,
-        updatedAt: now
-      }
+      set: updateSet
     })
     .run();
 
