@@ -1,0 +1,40 @@
+name: personal-krypto-dashboard
+
+services:
+  krypto-dashboard:
+    image: ${APP_IMAGE:-personal-krypto-dashboard:local}
+    build: .
+    container_name: krypto-dashboard
+    restart: unless-stopped
+    expose:
+      - '3000'
+    environment:
+      DATABASE_PATH: /data/krypto.db
+      BASE_CURRENCY: EUR
+      PRICE_PROVIDER: coingecko
+      PRICE_CACHE_TTL_SECONDS: '600'
+      PUBLIC_APP_NAME: Krypto Dashboard
+    volumes:
+      - krypto-data:/data
+    networks:
+      - npm_proxy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  npm_proxy:
+    external: true
+
+volumes:
+  krypto-data:
+    name: krypto-dashboard-data

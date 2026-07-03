@@ -1,0 +1,16 @@
+node_modules
+.svelte-kit
+build
+.env
+.env.*
+!.env.example
+.idea/
+data
+.codex-dev
+coverage
+dist
+*.local
+*.db
+*.db-shm
+*.db-wal
+npm-debug.log*

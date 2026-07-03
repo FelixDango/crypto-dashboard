@@ -1,0 +1,102 @@
+import Decimal from 'decimal.js';
+import type { ChartPoint, HoldingSummary, PortfolioOverview } from '$lib/types';
+import { calculatePortfolio } from '$lib/portfolio/calculations';
+import { db } from '$lib/server/db/client';
+import { assets, transactions } from '$lib/server/db/schema';
+import { listTransactions } from '$lib/server/transactions';
+import { getAppSettings } from '$lib/server/settings';
+import { getCurrentPricesForAssets, listPriceSnapshots } from '$lib/server/prices/cache';
+
+function withAssetImages() {
+  const assetRows = db.select().from(assets).all();
+  const imageByAsset = new Map(assetRows.map((asset) => [asset.id, asset.imageUrl]));
+  return listTransactions().map((transaction) => ({
+    ...transaction,
+    asset: {
+      id: transaction.assetId,
+      provider: 'coingecko',
+      providerCoinId: transaction.assetId.split(':').slice(1).join(':'),
+      symbol: transaction.assetSymbol,
+      name: transaction.assetName,
+      imageUrl: imageByAsset.get(transaction.assetId) ?? null,
+      createdAt: transaction.createdAt,
+      updatedAt: transaction.updatedAt
+    }
+  }));
+}
+
+function activeAssets(holdings: HoldingSummary[]) {
+  const rows = db.select().from(assets).all();
+  const active = new Set(
+    holdings.filter((holding) => Number(holding.quantity) > 0).map((h) => h.assetId)
+  );
+  return rows.filter((asset) => active.has(asset.id));
+}
+
+function buildPortfolioSeries(
+  holdings: HoldingSummary[],
+  baseCurrency: 'EUR' | 'USD'
+): ChartPoint[] {
+  const snapshots = listPriceSnapshots(baseCurrency);
+  if (snapshots.length === 0) {
+    const currentValue = holdings.reduce(
+      (total, holding) => total.plus(holding.currentValue),
+      new Decimal(0)
+    );
+    return [{ label: 'Now', value: currentValue.toString() }];
+  }
+
+  const quantityByAsset = new Map(
+    holdings.map((holding) => [holding.assetId, new Decimal(holding.quantity)])
+  );
+  const latestPriceByAsset = new Map<string, Decimal>();
+  const points = new Map<string, Decimal>();
+
+  for (const snapshot of snapshots) {
+    latestPriceByAsset.set(snapshot.assetId, new Decimal(snapshot.price));
+    const label = new Date(snapshot.capturedAt).toLocaleDateString('en-US', {
+      month: 'short',
+      day: '2-digit'
+    });
+
+    const value = [...quantityByAsset.entries()].reduce((total, [assetId, quantity]) => {
+      const price = latestPriceByAsset.get(assetId) ?? new Decimal(0);
+      return total.plus(quantity.mul(price));
+    }, new Decimal(0));
+
+    points.set(label, value);
+  }
+
+  const series = [...points.entries()].slice(-30).map(([label, value]) => ({
+    label,
+    value: value.toDecimalPlaces(12).toString()
+  }));
+
+  return series.length > 0 ? series : [{ label: 'Now', value: '0' }];
+}
+
+export async function getPortfolioOverview(): Promise<PortfolioOverview> {
+  const settings = getAppSettings();
+  const transactionsWithAssets = withAssetImages();
+
+  const preliminary = calculatePortfolio(transactionsWithAssets, [], settings.baseCurrency);
+  const priceAssets = activeAssets(preliminary.holdings);
+  const quotes = await getCurrentPricesForAssets(
+    priceAssets,
+    settings.baseCurrency,
+    settings.priceProvider
+  );
+  const calculated = calculatePortfolio(transactionsWithAssets, quotes, settings.baseCurrency);
+  const priceWarnings = quotes.flatMap((quote) => (quote.warning ? [quote.warning] : []));
+
+  return {
+    ...calculated,
+    portfolioSeries: buildPortfolioSeries(calculated.holdings, settings.baseCurrency),
+    priceWarnings
+  };
+}
+
+export function getTransactionCount(): number {
+  const row = db.select().from(transactions).all();
+  return row.length;
+}
