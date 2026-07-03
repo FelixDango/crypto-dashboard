@@ -2,7 +2,7 @@ name: personal-krypto-dashboard
 
 services:
   krypto-dashboard:
-    image: ghcr.io/felixdango/crypto-dashboard:latest
+    image: ${APP_IMAGE:-ghcr.io/felixdango/crypto-dashboard:latest}
     container_name: krypto-dashboard
     restart: unless-stopped
     expose:

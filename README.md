@@ -69,8 +69,9 @@ For production deployment, keep this repository checked out on the server and se
 - `DEPLOY_SSH_KEY`: private SSH key for deployment
 - `DEPLOY_PATH`: absolute path to the checked-out project on the server
 - `DEPLOY_PORT`: optional SSH port, defaults to `22`
+- `ENABLE_PRODUCTION_DEPLOY`: set to `true` to deploy automatically after pushes to `main` or `master`
 
-Enable automatic deploys from `main` or `master` by setting the repository variable `ENABLE_PRODUCTION_DEPLOY` to `true`. You can also run the workflow manually and enable the `deploy` input. The deploy job pulls the tested GHCR image, runs `npm run db:migrate` against the persistent SQLite volume, restarts the Compose service, and checks `/health`.
+You can also run the workflow manually and enable the `deploy` input. The deploy job pulls the tested GHCR image, runs `npm run db:migrate` against the persistent SQLite volume, restarts the Compose service, and checks `/health`.
 
 ## Nginx Proxy Manager
 

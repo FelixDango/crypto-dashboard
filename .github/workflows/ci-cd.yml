@@ -113,14 +113,12 @@ jobs:
       name: production
     if: >-
       ${{
-        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
-        (
-          (github.event_name == 'push' && vars.ENABLE_PRODUCTION_DEPLOY == 'true') ||
-          (github.event_name == 'workflow_dispatch' && inputs.deploy)
-        )
+        github.event_name != 'pull_request' &&
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       }}
 
     env:
+      ENABLE_PRODUCTION_DEPLOY: ${{ secrets.ENABLE_PRODUCTION_DEPLOY }}
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -131,7 +129,26 @@ jobs:
       APP_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
 
     steps:
+      - name: Check deployment gate
+        id: deploy_gate
+        env:
+          MANUAL_DEPLOY: ${{ inputs.deploy }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$MANUAL_DEPLOY" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$ENABLE_PRODUCTION_DEPLOY" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::Deployment disabled. Set secret ENABLE_PRODUCTION_DEPLOY to true or run workflow_dispatch with deploy=true."
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+
       - name: Validate deployment secrets
+        if: steps.deploy_gate.outputs.enabled == 'true'
         run: |
           test -n "$DEPLOY_HOST"
           test -n "$DEPLOY_USER"
@@ -139,6 +156,7 @@ jobs:
           test -n "$DEPLOY_SSH_KEY"
 
       - name: Configure SSH
+        if: steps.deploy_gate.outputs.enabled == 'true'
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
@@ -146,11 +164,13 @@ jobs:
           ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Login to GHCR on host
+        if: steps.deploy_gate.outputs.enabled == 'true'
         run: |
           printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "docker login $REGISTRY -u '$GHCR_USERNAME' --password-stdin"
 
       - name: Pull image, migrate database, and restart
+        if: steps.deploy_gate.outputs.enabled == 'true'
         run: |
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
             "DEPLOY_PATH='$DEPLOY_PATH' APP_IMAGE='$APP_IMAGE' bash -s" <<'REMOTE'
