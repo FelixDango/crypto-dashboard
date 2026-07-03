@@ -86,6 +86,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,format=long,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Login to GitHub Container Registry
         if: github.event_name != 'pull_request'
@@ -177,6 +178,8 @@ jobs:
           set -euo pipefail
           cd "$DEPLOY_PATH"
           export APP_IMAGE
+          echo "Deploying image: $APP_IMAGE"
+          docker compose config --services
 
           docker compose pull krypto-dashboard
           docker compose run --rm krypto-dashboard npm run db:migrate

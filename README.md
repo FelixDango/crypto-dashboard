@@ -60,6 +60,7 @@ ghcr.io/<owner>/<repo>:main
 ghcr.io/<owner>/<repo>:master
 ghcr.io/<owner>/<repo>:sha-<commit-sha>
 ghcr.io/<owner>/<repo>:vX.Y.Z
+ghcr.io/<owner>/<repo>:latest
 ```
 
 For production deployment, keep this repository checked out on the server and set these GitHub repository secrets:
