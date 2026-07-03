@@ -128,7 +128,7 @@ jobs:
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
       GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GHCR_USERNAME: ${{ github.actor }}
-      APP_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+      APP_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
 
     steps:
       - name: Validate deployment secrets
