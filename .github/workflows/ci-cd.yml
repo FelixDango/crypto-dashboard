@@ -181,9 +181,9 @@ jobs:
           echo "Deploying image: $APP_IMAGE"
           docker compose config --services
 
-          docker compose pull krypto-dashboard
+          docker compose pull krypto-dashboard snapshot-cron
           docker compose run --rm -T krypto-dashboard npm run db:migrate </dev/null
-          docker compose up -d --no-build --force-recreate krypto-dashboard
+          docker compose up -d --no-build --force-recreate krypto-dashboard snapshot-cron
 
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
             if docker compose exec -T krypto-dashboard node -e "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"; then
@@ -193,6 +193,6 @@ jobs:
             sleep 3
           done
 
-          docker compose logs --tail=100 krypto-dashboard
+          docker compose logs --tail=100 krypto-dashboard snapshot-cron
           exit 1
           REMOTE

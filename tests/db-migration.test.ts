@@ -18,6 +18,7 @@ describe('database migrations', () => {
     expect(tables).toContain('assets');
     expect(tables).toContain('transactions');
     expect(tables).toContain('price_snapshots');
+    expect(tables).toContain('portfolio_snapshots');
     expect(tables).toContain('fx_rates');
     expect(tables).toContain('import_batches');
     expect(tables).toContain('settings');
@@ -28,5 +29,11 @@ describe('database migrations', () => {
       .map((row) => (row as { name: string }).name);
     expect(transactionColumns).toContain('import_batch_id');
     expect(transactionColumns).toContain('row_hash');
+
+    const snapshotIndexes = sqlite
+      .prepare("PRAGMA index_list('portfolio_snapshots')")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(snapshotIndexes).toContain('portfolio_snapshots_bucket_unique');
   });
 });

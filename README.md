@@ -7,6 +7,7 @@ A private, self-hosted crypto portfolio tracker for manual transactions. It uses
 ```bash
 npm install
 cp .env.example .env
+# Edit .env and set INTERNAL_CRON_SECRET to a long random value.
 npm run db:migrate
 npm run seed
 npm run dev
@@ -34,11 +35,57 @@ docker network create npm_proxy
 Build and run:
 
 ```bash
+cp .env.example .env
+# Edit .env and set INTERNAL_CRON_SECRET to a long random value.
 docker compose up -d --build
 docker compose ps
 ```
 
-The container exposes port `3000` only to the `npm_proxy` Docker network. It does not bind a public host port by default.
+The app container exposes port `3000` only to the `npm_proxy` Docker network. It does not bind a public host port by default. `docker compose up -d` starts both `krypto-dashboard` and `snapshot-cron`.
+
+## Automatic Snapshots
+
+Portfolio value charts use rows from the `portfolio_snapshots` SQLite table. The app creates real snapshots only; it does not invent historical values. On the first dashboard visit, the server creates an initial hourly snapshot if none exist yet.
+
+The `snapshot-cron` sidecar runs Alpine `crond` and calls the app by Docker DNS alias:
+
+- Hourly: minute 5, `POST http://app:3000/api/internal/snapshots/hourly`
+- Daily: 23:55, `POST http://app:3000/api/internal/snapshots/daily`
+
+Both calls require:
+
+```text
+Authorization: Bearer ${INTERNAL_CRON_SECRET}
+```
+
+Set `INTERNAL_CRON_SECRET` in `.env` to a long random value and keep it the same for the app and sidecar. Do not expose `/api/internal/*` publicly without the bearer token. Nginx Proxy Manager should expose only the normal app route with its Access List / Basic Auth in front.
+
+Manual verification from inside the Compose network:
+
+```bash
+docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://app:3000/api/internal/snapshots/hourly'
+docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://app:3000/api/internal/snapshots/daily'
+```
+
+For local dev on the Vite server:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://localhost:5173/api/internal/snapshots/hourly
+```
+
+Disable the cron sidecar while keeping the app running:
+
+```bash
+docker compose up -d --scale snapshot-cron=0
+```
+
+Chart ranges map to snapshot types as follows:
+
+- `24h`: hourly snapshots
+- `7d`: hourly snapshots when at least 24 hourly points exist, otherwise daily snapshots if available
+- `30d`, `90d`, `1y`, `all`: daily snapshots
+
+Duplicate prevention is enforced by a unique SQLite index over snapshot type, base currency, and normalized UTC bucket timestamp. Repeated calls for the same hour or day return `already_exists`.
 
 ## GitHub Actions CI/CD
 
@@ -171,13 +218,12 @@ Realized P/L is approximate in v1.
 
 - Fiat conversion is not implemented. For clean reporting, enter transactions in the selected base currency.
 - No tax reporting, FIFO/LIFO, exchange sync, or real-time WebSocket pricing.
-- Price history charts are built from cached snapshots collected while the app is used.
+- Portfolio history begins when real automatic snapshots are created; past values are not backfilled.
 - Coin search and price refresh depend on CoinGecko availability and rate limits.
 
 ## Suggested V2 Improvements
 
 - Optional FX conversion cache for EUR/USD transaction mixing.
 - FIFO/LIFO cost basis modes after average-cost parity tests.
-- Scheduled price snapshot capture.
 - Optional Kraken public market price provider.
 - Encrypted off-host backup target.

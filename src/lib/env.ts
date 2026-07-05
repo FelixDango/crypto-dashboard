@@ -15,3 +15,8 @@ export function getPriceCacheTtlSeconds(): number {
 export function getConfiguredProvider(): string {
   return process.env.PRICE_PROVIDER ?? 'coingecko';
 }
+
+export function getInternalCronSecret(): string | null {
+  const secret = process.env.INTERNAL_CRON_SECRET?.trim();
+  return secret ? secret : null;
+}

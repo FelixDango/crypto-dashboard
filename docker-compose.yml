@@ -13,10 +13,13 @@ services:
       PRICE_PROVIDER: coingecko
       PRICE_CACHE_TTL_SECONDS: '600'
       PUBLIC_APP_NAME: Krypto Dashboard
+      INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:?Set INTERNAL_CRON_SECRET in .env}
     volumes:
       - krypto-data:/data
     networks:
-      - npm_proxy
+      npm_proxy:
+        aliases:
+          - app
     healthcheck:
       test:
         [
@@ -29,6 +32,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  snapshot-cron:
+    image: alpine:3.20
+    container_name: krypto-dashboard-snapshot-cron
+    restart: unless-stopped
+    depends_on:
+      krypto-dashboard:
+        condition: service_healthy
+    environment:
+      INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:?Set INTERNAL_CRON_SECRET in .env}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        apk add --no-cache curl
+        printf '%s\n' \
+          "5 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://app:3000/api/internal/snapshots/hourly >/proc/1/fd/1 2>/proc/1/fd/2" \
+          "55 23 * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://app:3000/api/internal/snapshots/daily >/proc/1/fd/1 2>/proc/1/fd/2" \
+          > /etc/crontabs/root
+        crond -f -l 8
+    networks:
+      - npm_proxy
 
 networks:
   npm_proxy:

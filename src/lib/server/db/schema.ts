@@ -2,6 +2,8 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
 
 type Currency = 'EUR' | 'USD';
 type TransactionType = 'buy' | 'sell';
+type PortfolioSnapshotType = 'hourly' | 'daily';
+type PortfolioSnapshotPriceStatus = 'fresh' | 'stale' | 'failed';
 
 export const assets = sqliteTable(
   'assets',
@@ -84,6 +86,37 @@ export const priceSnapshots = sqliteTable(
   })
 );
 
+export const portfolioSnapshots = sqliteTable(
+  'portfolio_snapshots',
+  {
+    id: text('id').primaryKey(),
+    snapshotType: text('snapshot_type').$type<PortfolioSnapshotType>().notNull(),
+    baseCurrency: text('base_currency').$type<Currency>().notNull(),
+    bucketAt: text('bucket_at').notNull(),
+    totalValue: text('total_value').notNull(),
+    totalInvested: text('total_invested').notNull(),
+    unrealizedProfit: text('unrealized_profit').notNull(),
+    roiPercent: text('roi_percent').notNull(),
+    holdingsJson: text('holdings_json').notNull(),
+    pricesJson: text('prices_json').notNull(),
+    priceStatus: text('price_status').$type<PortfolioSnapshotPriceStatus>().notNull(),
+    capturedAt: text('captured_at').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => ({
+    bucketUnique: uniqueIndex('portfolio_snapshots_bucket_unique').on(
+      table.snapshotType,
+      table.baseCurrency,
+      table.bucketAt
+    ),
+    baseTypeBucketIndex: index('portfolio_snapshots_base_type_bucket_idx').on(
+      table.baseCurrency,
+      table.snapshotType,
+      table.bucketAt
+    )
+  })
+);
+
 export const fxRates = sqliteTable(
   'fx_rates',
   {
@@ -115,6 +148,7 @@ export type NewAssetRow = typeof assets.$inferInsert;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type PriceSnapshotRow = typeof priceSnapshots.$inferSelect;
+export type PortfolioSnapshotRow = typeof portfolioSnapshots.$inferSelect;
 export type FxRateRow = typeof fxRates.$inferSelect;
 export type ImportBatchRow = typeof importBatches.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;

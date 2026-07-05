@@ -120,11 +120,30 @@ export type ChartPoint = {
   value: string;
 };
 
+export type PortfolioSnapshotType = 'hourly' | 'daily';
+export type PortfolioSnapshotPriceStatus = 'fresh' | 'stale' | 'failed';
+export type SnapshotRange = '24h' | '7d' | '30d' | '90d' | '1y' | 'all';
+
+export type PortfolioSnapshotPoint = ChartPoint & {
+  capturedAt: string;
+  priceStatus: PortfolioSnapshotPriceStatus;
+  snapshotType: PortfolioSnapshotType;
+};
+
+export type PortfolioSnapshotSeries = {
+  range: SnapshotRange;
+  snapshotType: PortfolioSnapshotType;
+  usedFallback: boolean;
+  hasSnapshots: boolean;
+  points: PortfolioSnapshotPoint[];
+};
+
 export type PortfolioOverview = {
   totals: PortfolioTotals;
   holdings: HoldingSummary[];
   allocation: ChartPoint[];
-  portfolioSeries: ChartPoint[];
+  portfolioSeries: PortfolioSnapshotPoint[];
+  portfolioSnapshotSeries: PortfolioSnapshotSeries;
   priceWarnings: string[];
   fxWarnings: string[];
   bestPerformer: HoldingSummary | null;

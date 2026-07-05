@@ -1,14 +1,21 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
-  import { Plus, RefreshCw, TriangleAlert } from '@lucide/svelte';
+  import { Camera, Plus, RefreshCw, TriangleAlert } from '@lucide/svelte';
   import type { EChartsOption } from 'echarts';
   import Chart from '$lib/components/Chart.svelte';
   import { formatCurrency, formatPercent, signedClass } from '$lib/format';
-  import type { PortfolioOverview } from '$lib/types';
+  import type { PortfolioOverview, SnapshotRange } from '$lib/types';
 
   export let data: {
     overview: PortfolioOverview;
+    snapshotRange: SnapshotRange;
+    snapshotRanges: { value: SnapshotRange; label: string }[];
   };
+  export let form: {
+    snapshotError?: string;
+    snapshotResult?: string;
+    snapshotBucket?: string;
+  } | null = null;
 
   let allocationOption: EChartsOption;
   let valueOption: EChartsOption;
@@ -17,7 +24,10 @@
 
   $: overview = data.overview;
   $: currency = overview.totals.baseCurrency;
+  $: snapshotSeries = overview.portfolioSnapshotSeries;
+  $: selectedRange = data.snapshotRange;
   $: warnings = [...overview.priceWarnings, ...overview.fxWarnings];
+  $: alertMessage = refreshError || form?.snapshotError || warnings[0] || '';
   $: chartSummary = `Portfolio value is ${formatCurrency(
     overview.totals.currentValue,
     currency
@@ -102,10 +112,10 @@
     </div>
   </div>
 
-  {#if warnings.length > 0 || refreshError}
+  {#if alertMessage}
     <div class="notice warning-list">
       <TriangleAlert size={18} />
-      <span>{refreshError || warnings[0]}</span>
+      <span>{alertMessage}</span>
     </div>
   {/if}
 
@@ -113,9 +123,9 @@
     <article class="card metric-card">
       <span class="label">Portfolio value</span>
       <strong class="value">{formatCurrency(overview.totals.currentValue, currency)}</strong>
-      <span class="meta"
-        >{overview.totals.stalePriceCount} stale · {overview.totals.missingPriceCount} missing</span
-      >
+      <span class="meta">
+        {overview.totals.stalePriceCount} stale / {overview.totals.missingPriceCount} missing
+      </span>
     </article>
     <article class="card metric-card">
       <span class="label">Invested</span>
@@ -140,14 +150,44 @@
 
   <div class="grid two-column dashboard-main">
     <section class="card">
-      <div class="section-head">
-        <h2>Portfolio value</h2>
-        <span class="muted">cached snapshots</span>
+      <div class="section-head chart-head">
+        <div class="section-title">
+          <h2>Portfolio value</h2>
+          <span class="muted">
+            {snapshotSeries.snapshotType}{snapshotSeries.usedFallback ? ' fallback' : ''}
+          </span>
+        </div>
+        <nav class="range-tabs" aria-label="Snapshot range">
+          {#each data.snapshotRanges as range}
+            <a
+              class:active={selectedRange === range.value}
+              href={`/dashboard?range=${range.value}`}
+              aria-current={selectedRange === range.value ? 'page' : undefined}
+            >
+              {range.label}
+            </a>
+          {/each}
+        </nav>
       </div>
       {#if overview.holdings.length === 0}
         <div class="empty-state">
           <h2>No transactions yet</h2>
           <a class="btn primary" href="/transactions">Add your first buy</a>
+        </div>
+      {:else if !snapshotSeries.hasSnapshots}
+        <div class="empty-state">
+          <h2>No snapshots yet</h2>
+          <form method="POST" action="?/createSnapshot">
+            <button class="btn primary" type="submit">
+              <Camera size={18} />
+              Create snapshot now
+            </button>
+          </form>
+        </div>
+      {:else if overview.portfolioSeries.length === 0}
+        <div class="empty-state">
+          <h2>No snapshot data</h2>
+          <p class="muted">No {snapshotSeries.snapshotType} snapshots in this range.</p>
         </div>
       {:else}
         <Chart option={valueOption} label="Portfolio value chart" summary={chartSummary} />
@@ -240,6 +280,44 @@
     margin-bottom: 0.8rem;
   }
 
+  .chart-head {
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+
+  .section-title {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .range-tabs {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    gap: 0.2rem;
+    padding: 0.2rem;
+  }
+
+  .range-tabs a {
+    align-items: center;
+    border-radius: 6px;
+    color: var(--muted);
+    display: inline-flex;
+    font-size: 0.82rem;
+    font-weight: 800;
+    justify-content: center;
+    min-height: 2rem;
+    min-width: 2.6rem;
+    padding: 0 0.55rem;
+  }
+
+  .range-tabs a:hover,
+  .range-tabs a.active {
+    background: var(--surface-strong);
+    color: var(--text);
+  }
+
   .performer-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     margin-top: 1rem;
@@ -263,6 +341,19 @@
       display: grid;
       grid-template-columns: 1fr;
       width: 100%;
+    }
+
+    .chart-head,
+    .range-tabs {
+      width: 100%;
+    }
+
+    .chart-head {
+      display: grid;
+    }
+
+    .range-tabs {
+      overflow-x: auto;
     }
   }
 </style>
