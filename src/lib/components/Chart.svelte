@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import type { EChartsOption } from 'echarts';
   import type { EChartsType } from 'echarts/core';
+  import { privacyEnabled } from '$lib/privacy/formatSensitive';
 
   export let option: EChartsOption;
   export let label = 'Chart';
   export let summary = '';
+  export let sensitive = false;
 
   let element: HTMLDivElement;
   let chart: EChartsType | null = null;
@@ -31,6 +33,8 @@
         components.GridComponent,
         components.TooltipComponent,
         components.LegendComponent,
+        components.MarkAreaComponent,
+        components.MarkLineComponent,
         renderers.CanvasRenderer
       ]);
       const mountedChart = core.init(element, 'dark', { renderer: 'canvas' });
@@ -59,15 +63,27 @@
   }
 </script>
 
-<div class="chart" bind:this={element} aria-label={label}></div>
+<div
+  class="chart"
+  class:privacy-obscured={sensitive && $privacyEnabled}
+  bind:this={element}
+  aria-label={label}
+></div>
 {#if summary}
-  <p class="sr-only">{summary}</p>
+  <p class="sr-only">
+    {sensitive && $privacyEnabled ? 'Sensitive chart values hidden by privacy mode.' : summary}
+  </p>
 {/if}
 
 <style>
   .chart {
     min-height: 280px;
+    transition: filter 0.15s ease;
     width: 100%;
+  }
+
+  .privacy-obscured {
+    filter: blur(8px);
   }
 
   .sr-only {

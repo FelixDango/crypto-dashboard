@@ -1,6 +1,25 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import { Activity, BarChart3, Coins, Home, ListChecks, Settings } from '@lucide/svelte';
+  import {
+    Activity,
+    BarChart3,
+    Coins,
+    Eye,
+    EyeOff,
+    Home,
+    Lightbulb,
+    ListChecks,
+    Settings,
+    Shield
+  } from '@lucide/svelte';
+  import {
+    initializePrivacyLevel,
+    nextPrivacyLevel,
+    privacyLevel,
+    privacyLevelLabel,
+    setPrivacyLevel
+  } from '$lib/privacy/formatSensitive';
 
   export let data: {
     appName: string;
@@ -13,10 +32,19 @@
   const nav = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
     { href: '/analytics', label: 'Analytics', icon: Activity },
+    { href: '/insights', label: 'Insights', icon: Lightbulb },
     { href: '/transactions', label: 'Transactions', icon: ListChecks },
     { href: '/assets', label: 'Assets', icon: Coins },
     { href: '/settings', label: 'Settings', icon: Settings }
   ];
+
+  onMount(() => {
+    initializePrivacyLevel();
+  });
+
+  function togglePrivacy() {
+    setPrivacyLevel(nextPrivacyLevel($privacyLevel));
+  }
 </script>
 
 <svelte:head>
@@ -38,6 +66,23 @@
         </a>
       {/each}
     </nav>
+
+    <button
+      class="privacy-toggle"
+      type="button"
+      aria-pressed={$privacyLevel !== 'off'}
+      title={privacyLevelLabel($privacyLevel)}
+      on:click={togglePrivacy}
+    >
+      {#if $privacyLevel === 'strict'}
+        <Shield size={18} />
+      {:else if $privacyLevel === 'basic'}
+        <EyeOff size={18} />
+      {:else}
+        <Eye size={18} />
+      {/if}
+      <span>{privacyLevelLabel($privacyLevel)}</span>
+    </button>
 
     <div class="sidebar-footer">
       <span>{data.settings.baseCurrency}</span>
@@ -164,10 +209,27 @@
   }
 
   nav a:hover,
-  nav a.active {
+  nav a.active,
+  .privacy-toggle:hover,
+  .privacy-toggle[aria-pressed='true'] {
     background: var(--surface-soft);
     border-color: var(--border);
     color: var(--text);
+  }
+
+  .privacy-toggle {
+    align-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    gap: 0.75rem;
+    min-height: 2.65rem;
+    padding: 0 0.8rem;
+    text-align: left;
+    width: 100%;
   }
 
   .sidebar-footer {
@@ -493,6 +555,12 @@
       min-width: max-content;
     }
 
+    .privacy-toggle {
+      flex: 0 0 auto;
+      min-width: max-content;
+      width: auto;
+    }
+
     :global(.two-column) {
       grid-template-columns: 1fr;
     }
@@ -521,6 +589,13 @@
     }
 
     nav a {
+      justify-content: center;
+      min-height: 2.4rem;
+      min-width: 2.4rem;
+      padding: 0;
+    }
+
+    .privacy-toggle {
       justify-content: center;
       min-height: 2.4rem;
       min-width: 2.4rem;
@@ -655,7 +730,8 @@
       text-overflow: unset;
     }
 
-    nav a span {
+    nav a span,
+    .privacy-toggle span {
       display: none;
     }
   }

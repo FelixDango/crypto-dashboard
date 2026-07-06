@@ -5,6 +5,7 @@
   import { Download, Pencil, Plus, Search, Trash2, TriangleAlert, Upload, X } from '@lucide/svelte';
   import AssetSearch from '$lib/components/AssetSearch.svelte';
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
+  import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import { formatCurrency, formatCrypto, formatDate } from '$lib/format';
   import type { TransactionRecord } from '$lib/types';
 
@@ -244,16 +245,24 @@
                     {transaction.type}
                   </span>
                 </td>
-                <td data-label="Quantity">{formatCrypto(transaction.quantity)}</td>
+                <td data-label="Quantity">
+                  <PrivacyValue value={formatCrypto(transaction.quantity)} kind="quantity" />
+                </td>
                 <td data-label="Fiat"
-                  >{formatCurrency(transaction.fiatAmount, transaction.fiatCurrency)}</td
+                  ><PrivacyValue
+                    value={formatCurrency(transaction.fiatAmount, transaction.fiatCurrency)}
+                    kind="fiat"
+                  /></td
                 >
                 <td data-label="Fee">
                   {#if transaction.feeAmount}
-                    {formatCurrency(
-                      transaction.feeAmount,
-                      transaction.feeCurrency ?? transaction.fiatCurrency
-                    )}
+                    <PrivacyValue
+                      value={formatCurrency(
+                        transaction.feeAmount,
+                        transaction.feeCurrency ?? transaction.fiatCurrency
+                      )}
+                      kind="fiat"
+                    />
                   {:else}
                     <span class="muted">-</span>
                   {/if}
@@ -358,7 +367,9 @@
                 <span>{sellWarning}</span>
               {:else if addUnitCost}
                 <span>Unit cost preview</span>
-                <strong>{formatCurrency(addUnitCost, addFiatCurrency)}</strong>
+                <strong>
+                  <PrivacyValue value={formatCurrency(addUnitCost, addFiatCurrency)} kind="fiat" />
+                </strong>
               {/if}
             </div>
           {/if}
@@ -543,8 +554,13 @@
                     <td>{row.index}</td>
                     <td>{row.assetSymbol}</td>
                     <td>{row.type}</td>
-                    <td>{row.quantity}</td>
-                    <td>{formatCurrency(row.fiatAmount, row.fiatCurrency)}</td>
+                    <td><PrivacyValue value={row.quantity} kind="quantity" /></td>
+                    <td>
+                      <PrivacyValue
+                        value={formatCurrency(row.fiatAmount, row.fiatCurrency)}
+                        kind="fiat"
+                      />
+                    </td>
                     <td>{row.duplicate ? 'Duplicate' : 'Ready'}</td>
                   </tr>
                 {/each}

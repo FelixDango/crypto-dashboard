@@ -1,5 +1,6 @@
 <script lang="ts">
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
+  import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import { formatCrypto, formatCurrency, formatPercent, signedClass } from '$lib/format';
   import type { PortfolioOverview } from '$lib/types';
 
@@ -62,27 +63,45 @@
                     </span>
                   </a>
                 </td>
-                <td data-label="Quantity">{formatCrypto(holding.quantity)}</td>
+                <td data-label="Quantity">
+                  <PrivacyValue value={formatCrypto(holding.quantity)} kind="quantity" />
+                </td>
                 <td data-label="Average open cost">
-                  {formatCurrency(holding.averageCost, currency)}
+                  <PrivacyValue value={formatCurrency(holding.averageCost, currency)} kind="fiat" />
                 </td>
                 <td data-label="Current price">
-                  {formatCurrency(holding.currentPrice, currency)}
+                  <PrivacyValue
+                    value={formatCurrency(holding.currentPrice, currency)}
+                    kind="fiat"
+                  />
                   {#if holding.stalePrice}
                     <span class="stale">stale</span>
                   {/if}
                 </td>
-                <td data-label="Value">{formatCurrency(holding.currentValue, currency)}</td>
+                <td data-label="Value">
+                  <PrivacyValue
+                    value={formatCurrency(holding.currentValue, currency)}
+                    kind="fiat"
+                  />
+                </td>
                 <td data-label="Unrealized P/L" class={signedClass(holding.unrealizedProfit)}>
-                  {formatCurrency(holding.unrealizedProfit, currency)}
+                  <PrivacyValue
+                    value={formatCurrency(holding.unrealizedProfit, currency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="Realized P/L" class={signedClass(holding.realizedProfit)}>
-                  {formatCurrency(holding.realizedProfit, currency)}
+                  <PrivacyValue
+                    value={formatCurrency(holding.realizedProfit, currency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="ROI" class={signedClass(holding.roiPercent)}>
                   {formatPercent(holding.roiPercent)}
                 </td>
-                <td data-label="Fees">{formatCurrency(holding.totalFees, currency)}</td>
+                <td data-label="Fees">
+                  <PrivacyValue value={formatCurrency(holding.totalFees, currency)} kind="fiat" />
+                </td>
                 <td data-label="Allocation">{formatPercent(holding.allocationPercent)}</td>
               </tr>
             {/each}

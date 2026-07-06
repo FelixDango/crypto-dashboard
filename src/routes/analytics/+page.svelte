@@ -9,6 +9,8 @@
   } from '@lucide/svelte';
   import type { EChartsOption } from 'echarts';
   import Chart from '$lib/components/Chart.svelte';
+  import CycleCard from '$lib/components/CycleCard.svelte';
+  import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import type {
     AnalyticsAllocationResponse,
     AnalyticsDrawdownResponse,
@@ -27,6 +29,7 @@
     formatPercent,
     signedClass
   } from '$lib/format';
+  import type { CycleProgress, CycleWindow } from '$lib/server/insights/market-cycle';
 
   export let data: {
     range: AnalyticsRange;
@@ -37,11 +40,14 @@
     monthly: AnalyticsMonthlyResponse;
     allocation: AnalyticsAllocationResponse;
     health: AnalyticsHealthSummary;
+    cycle: CycleProgress | null;
+    cycleWindows: CycleWindow[];
   };
 
   let selectedRange = data.range;
   let performance = data.performance;
   let drawdown = data.drawdown;
+  let showCycleOverlay = true;
   let rangeLoading = false;
   let rangeError = '';
 
@@ -53,23 +59,26 @@
       label: `${metric.label} change`,
       value: metric.available && metric.percentChange ? formatPercent(metric.percentChange) : '-',
       className: metric.available ? signedClass(metric.percentChange ?? 0) : 'neutral',
-      meta: metric.available
-        ? `${formatCurrency(metric.valueChange ?? 0, currency)} portfolio value change`
-        : (metric.message ?? 'Not enough history')
+      metaValue: metric.available ? formatCurrency(metric.valueChange ?? 0, currency) : null,
+      meta: metric.available ? 'portfolio value change' : (metric.message ?? 'Not enough history')
     };
   });
   $: valueOption = lineOption(
-    performance.series.points.map((point) => point.label),
-    performance.series.points.map((point) => Number(point.value)),
+    performance.series.points.map(
+      (point) => [point.bucketAt, Number(point.value)] as [string, number]
+    ),
     'Portfolio value',
     '#2dd4bf',
+    true,
     true
   );
   $: drawdownOption = lineOption(
-    drawdown.points.map((point) => point.label),
-    drawdown.points.map((point) => Number(point.drawdownPercent)),
+    drawdown.points.map(
+      (point) => [point.bucketAt, Number(point.drawdownPercent)] as [string, number]
+    ),
     'Drawdown',
     '#fb7185',
+    true,
     true
   );
   $: contributionOption = {
@@ -164,19 +173,18 @@
   }
 
   function lineOption(
-    labels: string[],
-    values: number[],
+    points: Array<[string, number]>,
     name: string,
     color: string,
-    fill = false
+    fill = false,
+    overlay = false
   ): EChartsOption {
     return {
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
       grid: { left: 16, right: 14, top: 18, bottom: 30, containLabel: true },
       xAxis: {
-        type: 'category',
-        data: labels,
+        type: 'time',
         axisLabel: { color: '#99a5ad' },
         axisLine: { lineStyle: { color: '#2a343b' } }
       },
@@ -190,9 +198,29 @@
           areaStyle: fill ? { color: `${color}22` } : undefined,
           lineStyle: { color, width: 3 },
           itemStyle: { color },
-          data: values
+          data: points,
+          markArea: cycleMarkArea(overlay && showCycleOverlay)
         }
       ]
+    };
+  }
+
+  function cycleMarkArea(enabled: boolean) {
+    if (!enabled) return undefined;
+
+    return {
+      silent: true,
+      itemStyle: { opacity: 0.08 },
+      data: data.cycleWindows.map(
+        (window) =>
+          [
+            {
+              xAxis: window.phaseStart,
+              itemStyle: { color: window.phase === 'bull' ? '#22c55e' : '#fb7185' }
+            },
+            { xAxis: window.phaseEndExclusive }
+          ] as [{ xAxis: string; itemStyle: { color: string } }, { xAxis: string }]
+      )
     };
   }
 
@@ -274,15 +302,25 @@
     </div>
   {/if}
 
+  <CycleCard progress={data.cycle} />
+
   <div class="grid analytics-metrics">
     <article class="card metric-card">
       <span class="label">Current portfolio value</span>
-      <strong class="value">{formatCurrency(data.summary.currentValue, currency)}</strong>
+      <PrivacyValue
+        className="value"
+        value={formatCurrency(data.summary.currentValue, currency)}
+        kind="fiat"
+      />
       <span class="meta">Latest accounting view</span>
     </article>
     <article class="card metric-card">
       <span class="label">All-time high value</span>
-      <strong class="value">{optionalCurrency(data.summary.allTimeHighValue)}</strong>
+      <PrivacyValue
+        className="value"
+        value={optionalCurrency(data.summary.allTimeHighValue)}
+        kind="fiat"
+      />
       <span class="meta">{formatDateTime(data.summary.allTimeHighAt)}</span>
     </article>
     <article class="card metric-card">
@@ -303,19 +341,32 @@
       <article class="card metric-card">
         <span class="label">{card.label}</span>
         <strong class="value {card.className}">{card.value}</strong>
-        <span class="meta">{card.meta}</span>
+        <span class="meta">
+          {#if card.metaValue}
+            <PrivacyValue value={card.metaValue} kind="fiat" />
+            {card.meta}
+          {:else}
+            {card.meta}
+          {/if}
+        </span>
       </article>
     {/each}
     <article class="card metric-card">
       <span class="label">Total invested</span>
-      <strong class="value">{formatCurrency(data.summary.totalInvested, currency)}</strong>
+      <PrivacyValue
+        className="value"
+        value={formatCurrency(data.summary.totalInvested, currency)}
+        kind="fiat"
+      />
       <span class="meta">Buy cost plus fees</span>
     </article>
     <article class="card metric-card">
       <span class="label">Accounting P/L</span>
-      <strong class="value {signedClass(data.summary.totalProfit)}">
-        {formatCurrency(data.summary.totalProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`value ${signedClass(data.summary.totalProfit)}`}
+        value={formatCurrency(data.summary.totalProfit, currency)}
+        kind="fiat"
+      />
       <span class="meta">Realized plus unrealized</span>
     </article>
     <article class="card metric-card">
@@ -350,6 +401,10 @@
             </button>
           {/each}
         </div>
+        <label class="overlay-toggle">
+          <input type="checkbox" bind:checked={showCycleOverlay} />
+          <span>Cycle overlay</span>
+        </label>
       </div>
       {#if rangeError}
         <div class="notice inline-notice">{rangeError}</div>
@@ -372,6 +427,7 @@
           option={valueOption}
           label="Portfolio value over time"
           summary={`${performance.series.points.length} portfolio value points are shown.`}
+          sensitive
         />
       {/if}
     </section>
@@ -415,6 +471,7 @@
           option={contributionOption}
           label="Monthly contribution chart"
           summary={`${data.monthly.contributions.length} monthly contribution buckets are shown.`}
+          sensitive
         />
       {/if}
     </section>
@@ -435,6 +492,7 @@
           option={pnlOption}
           label="Monthly P/L chart"
           summary={`${completePnl.length} complete monthly P/L buckets are shown.`}
+          sensitive
         />
       {/if}
     </section>
@@ -531,20 +589,36 @@
                   <strong>{asset.assetSymbol}</strong>
                   <span class="muted">{asset.assetName}</span>
                 </td>
-                <td data-label="Quantity">{formatCrypto(asset.currentQuantity)}</td>
-                <td data-label="Value">{formatCurrency(asset.currentValue, currency)}</td>
-                <td data-label="Cost basis">{formatCurrency(asset.costBasis, currency)}</td>
+                <td data-label="Quantity">
+                  <PrivacyValue value={formatCrypto(asset.currentQuantity)} kind="quantity" />
+                </td>
+                <td data-label="Value">
+                  <PrivacyValue value={formatCurrency(asset.currentValue, currency)} kind="fiat" />
+                </td>
+                <td data-label="Cost basis">
+                  <PrivacyValue value={formatCurrency(asset.costBasis, currency)} kind="fiat" />
+                </td>
                 <td class={signedClass(asset.unrealizedProfit)} data-label="Unrealized P/L">
-                  {formatCurrency(asset.unrealizedProfit, currency)}
+                  <PrivacyValue
+                    value={formatCurrency(asset.unrealizedProfit, currency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td
                   class={asset.realizedProfit ? signedClass(asset.realizedProfit) : 'neutral'}
                   data-label="Realized P/L"
                 >
-                  {asset.realizedProfit ? formatCurrency(asset.realizedProfit, currency) : '-'}
+                  {#if asset.realizedProfit}
+                    <PrivacyValue
+                      value={formatCurrency(asset.realizedProfit, currency)}
+                      kind="fiat"
+                    />
+                  {:else}
+                    -
+                  {/if}
                 </td>
                 <td class={signedClass(asset.totalProfit)} data-label="Total P/L">
-                  {formatCurrency(asset.totalProfit, currency)}
+                  <PrivacyValue value={formatCurrency(asset.totalProfit, currency)} kind="fiat" />
                 </td>
                 <td class={signedClass(asset.roiPercent)} data-label="ROI">
                   {formatPercent(asset.roiPercent)}
@@ -558,7 +632,9 @@
                 >
                   {asset.allocationDriftPercent ? formatPercent(asset.allocationDriftPercent) : '-'}
                 </td>
-                <td data-label="Price">{formatCurrency(asset.currentPrice, currency)}</td>
+                <td data-label="Price">
+                  <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
+                </td>
                 <td data-label="Status">
                   <span class="status {statusClass(asset.priceStatus)}">
                     {statusLabel(asset.priceStatus)}
@@ -711,6 +787,23 @@
     display: flex;
     gap: 0.2rem;
     padding: 0.2rem;
+  }
+
+  .overlay-toggle {
+    align-items: center;
+    color: var(--muted);
+    display: inline-flex;
+    font-size: 0.82rem;
+    font-weight: 800;
+    gap: 0.45rem;
+    min-height: 2rem;
+    white-space: nowrap;
+  }
+
+  .overlay-toggle input {
+    accent-color: var(--accent);
+    min-height: auto;
+    width: auto;
   }
 
   .range-tabs button {

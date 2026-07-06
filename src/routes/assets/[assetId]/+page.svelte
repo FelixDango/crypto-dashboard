@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ArrowLeft } from '@lucide/svelte';
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
+  import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import {
     formatCrypto,
     formatCurrency,
@@ -70,26 +71,37 @@
   <div class="grid metric-grid">
     <article class="card metric-card">
       <span class="label">Current holdings</span>
-      <strong class="value">{formatCrypto(asset.quantity)}</strong>
+      <PrivacyValue className="value" value={formatCrypto(asset.quantity)} kind="quantity" />
       <span class="meta">Current recorded balance</span>
     </article>
     <article class="card metric-card">
       <span class="label">Current value</span>
-      <strong class="value">{formatCurrency(asset.currentValue, currency)}</strong>
-      <span class="meta">{formatCurrency(asset.currentPrice, currency)} per unit</span>
+      <PrivacyValue
+        className="value"
+        value={formatCurrency(asset.currentValue, currency)}
+        kind="fiat"
+      />
+      <span class="meta">
+        <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
+        per unit
+      </span>
     </article>
     <article class="card metric-card">
       <span class="label">Unrealized P/L</span>
-      <strong class="value {signedClass(asset.unrealizedProfit)}">
-        {formatCurrency(asset.unrealizedProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`value ${signedClass(asset.unrealizedProfit)}`}
+        value={formatCurrency(asset.unrealizedProfit, currency)}
+        kind="fiat"
+      />
       <span class="meta">Current value minus open cost</span>
     </article>
     <article class="card metric-card">
       <span class="label">Realized P/L</span>
-      <strong class="value {signedClass(asset.realizedProfit)}">
-        {formatCurrency(asset.realizedProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`value ${signedClass(asset.realizedProfit)}`}
+        value={formatCurrency(asset.realizedProfit, currency)}
+        kind="fiat"
+      />
       <span class="meta">FIFO disposals</span>
     </article>
   </div>
@@ -103,16 +115,16 @@
       <dl class="detail-list">
         <div>
           <dt>Open cost basis</dt>
-          <dd>{formatCurrency(asset.costBasis, currency)}</dd>
+          <dd><PrivacyValue value={formatCurrency(asset.costBasis, currency)} kind="fiat" /></dd>
         </div>
         <div>
           <dt>Average open cost</dt>
-          <dd>{formatCurrency(asset.averageCost, currency)}</dd>
+          <dd><PrivacyValue value={formatCurrency(asset.averageCost, currency)} kind="fiat" /></dd>
         </div>
         <div>
           <dt>Total P/L</dt>
           <dd class={signedClass(asset.totalProfit)}>
-            {formatCurrency(asset.totalProfit, currency)}
+            <PrivacyValue value={formatCurrency(asset.totalProfit, currency)} kind="fiat" />
           </dd>
         </div>
         <div>
@@ -121,7 +133,7 @@
         </div>
         <div>
           <dt>Total fees</dt>
-          <dd>{formatCurrency(asset.totalFees, currency)}</dd>
+          <dd><PrivacyValue value={formatCurrency(asset.totalFees, currency)} kind="fiat" /></dd>
         </div>
         <div>
           <dt>Price source</dt>
@@ -141,11 +153,11 @@
       <dl class="detail-list">
         <div>
           <dt>Current price</dt>
-          <dd>{formatCurrency(asset.currentPrice, currency)}</dd>
+          <dd><PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" /></dd>
         </div>
         <div>
           <dt>Current value</dt>
-          <dd>{formatCurrency(asset.currentValue, currency)}</dd>
+          <dd><PrivacyValue value={formatCurrency(asset.currentValue, currency)} kind="fiat" /></dd>
         </div>
         <div>
           <dt>Allocation</dt>
@@ -153,7 +165,7 @@
         </div>
         <div>
           <dt>Total buy cost</dt>
-          <dd>{formatCurrency(asset.totalBuyCost, currency)}</dd>
+          <dd><PrivacyValue value={formatCurrency(asset.totalBuyCost, currency)} kind="fiat" /></dd>
         </div>
       </dl>
     </section>
@@ -185,13 +197,23 @@
             {#each data.openLots as lot}
               <tr>
                 <td data-label="Acquired">{formatDate(lot.acquiredAt)}</td>
-                <td data-label="Original qty">{formatCrypto(lot.originalQuantity)}</td>
-                <td data-label="Remaining qty">{formatCrypto(lot.remainingQuantity)}</td>
+                <td data-label="Original qty">
+                  <PrivacyValue value={formatCrypto(lot.originalQuantity)} kind="quantity" />
+                </td>
+                <td data-label="Remaining qty">
+                  <PrivacyValue value={formatCrypto(lot.remainingQuantity)} kind="quantity" />
+                </td>
                 <td data-label="Unit cost">
-                  {formatCurrency(lot.costBasisPerUnit, lot.fiatCurrency)}
+                  <PrivacyValue
+                    value={formatCurrency(lot.costBasisPerUnit, lot.fiatCurrency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="Open cost">
-                  {formatCurrency(lot.costBasisTotal, lot.fiatCurrency)}
+                  <PrivacyValue
+                    value={formatCurrency(lot.costBasisTotal, lot.fiatCurrency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="Source"><code>{lot.sourceTransactionId.slice(0, 8)}</code></td>
               </tr>
@@ -230,15 +252,26 @@
               <tr>
                 <td data-label="Disposed">{formatDate(disposal.disposedAt)}</td>
                 <td data-label="Acquired">{formatDate(disposal.acquiredAt)}</td>
-                <td data-label="Quantity sold">{formatCrypto(disposal.quantitySold)}</td>
+                <td data-label="Quantity sold">
+                  <PrivacyValue value={formatCrypto(disposal.quantitySold)} kind="quantity" />
+                </td>
                 <td data-label="Proceeds">
-                  {formatCurrency(disposal.proceedsAmount, disposal.fiatCurrency)}
+                  <PrivacyValue
+                    value={formatCurrency(disposal.proceedsAmount, disposal.fiatCurrency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="Cost basis">
-                  {formatCurrency(disposal.costBasisAmount, disposal.fiatCurrency)}
+                  <PrivacyValue
+                    value={formatCurrency(disposal.costBasisAmount, disposal.fiatCurrency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="Realized P/L" class={signedClass(disposal.realizedProfit)}>
-                  {formatCurrency(disposal.realizedProfit, disposal.fiatCurrency)}
+                  <PrivacyValue
+                    value={formatCurrency(disposal.realizedProfit, disposal.fiatCurrency)}
+                    kind="fiat"
+                  />
                 </td>
                 <td data-label="Lot"><code>{disposal.lotId.slice(0, 8)}</code></td>
               </tr>

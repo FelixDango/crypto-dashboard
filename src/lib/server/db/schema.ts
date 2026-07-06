@@ -226,6 +226,21 @@ export const settings = sqliteTable('settings', {
   value: text('value').notNull()
 });
 
+export const marketCycleSettings = sqliteTable('market_cycle_settings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  firstBullStartDate: text('first_bull_start_date').notNull(),
+  firstBullEndDateExclusive: text('first_bull_end_date_exclusive').notNull(),
+  firstBearStartDate: text('first_bear_start_date').notNull(),
+  firstBearEndDateExclusive: text('first_bear_end_date_exclusive').notNull(),
+  recurrenceStartDate: text('recurrence_start_date').notNull(),
+  recurringBullDurationDays: integer('recurring_bull_duration_days').notNull(),
+  recurringBearDurationDays: integer('recurring_bear_duration_days').notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+});
+
 export type AssetRow = typeof assets.$inferSelect;
 export type NewAssetRow = typeof assets.$inferInsert;
 export type TransactionRow = typeof transactions.$inferSelect;
@@ -241,3 +256,5 @@ export type NewLotDisposalRow = typeof lotDisposals.$inferInsert;
 export type FxRateRow = typeof fxRates.$inferSelect;
 export type ImportBatchRow = typeof importBatches.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;
+export type MarketCycleSettingsRow = typeof marketCycleSettings.$inferSelect;
+export type NewMarketCycleSettingsRow = typeof marketCycleSettings.$inferInsert;

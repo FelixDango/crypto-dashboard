@@ -20,7 +20,7 @@ Open `http://localhost:5173`.
 Useful checks:
 
 ```bash
-npm run test
+npm test
 npm run check
 npm run lint
 npm run build
@@ -160,6 +160,91 @@ top_asset_weight_percent = largest_asset_value / total_portfolio_value * 100
 ```
 
 Set `ALLOCATION_CONCENTRATION_WARNING_PERCENT=70` to change the warning threshold.
+
+## V5 Intelligence Layer
+
+Open `/insights` for deterministic portfolio context. V5 adds:
+
+- Privacy mode in the app shell. `off`, `basic`, and `strict` are stored in browser localStorage.
+  Basic hides fiat values. Strict hides fiat values and exact coin quantities.
+- Data confidence score answering whether the displayed numbers are trustworthy.
+- Explain mode using deterministic rules from snapshots, prices, transactions, analytics, and the
+  custom cycle model. It does not use AI and does not provide buy/sell advice.
+- Custom cycle model cards on `/dashboard`, `/analytics`, and `/insights`.
+- Optional bull/bear cycle overlays on portfolio value and drawdown charts.
+
+V5 API endpoints:
+
+- `GET /api/insights/summary`
+- `GET /api/insights/confidence`
+- `GET /api/insights/explain?range=24h|7d|30d`
+- `GET /api/insights/cycle`
+- `GET /api/insights/cycle/windows?start=YYYY-MM-DD&end=YYYY-MM-DD`
+
+### Custom Cycle Model
+
+This is a personal custom cycle model, not a prediction or financial advice.
+
+The app stores cycle windows as half-open intervals: `[start_date, end_date)`. The start date is
+included, the end date is excluded, and the displayed end date is one day before `end_date`.
+
+Seeded model:
+
+```text
+Bull: 2022-11-08 -> 2025-10-05
+Bear: 2025-10-06 -> 2026-10-05
+Bull: 2026-10-06 -> 2029-09-03
+Bear: 2029-09-04 -> 2030-09-03
+Bull: 2030-09-04 -> 2033-08-02
+Bear: 2033-08-03 -> 2034-08-02
+```
+
+Internal seed values:
+
+```text
+first_bull_start_date: 2022-11-08
+first_bull_end_date_exclusive: 2025-10-06
+first_bear_start_date: 2025-10-06
+first_bear_end_date_exclusive: 2026-10-06
+recurrence_start_date: 2026-10-06
+recurring_bull_duration_days: 1064
+recurring_bear_duration_days: 365
+```
+
+Manual cycle checks:
+
+```text
+Open /insights and confirm:
+- 2022-11-08 appears as bull start
+- 2025-10-06 appears as bear start
+- 2026-10-06 appears as recurring bull start
+- 2029-09-04 appears as bear start
+```
+
+### Data Confidence
+
+The data confidence score is a weighted average:
+
+- Snapshots: 30%
+- Prices: 30%
+- Transactions: 25%
+- Accounting: 15%
+
+The score checks snapshot freshness and gaps, price freshness and missing prices, suspicious manual
+transactions, sell quantities, and whether open accounting lots match transaction-derived holdings.
+
+### Explain Mode
+
+Explain mode returns structured JSON with `summary`, `bullets`, `warnings`, and `drivers`. It is
+deterministic and limited to app data. It avoids language such as "you should buy" or "you should
+sell".
+
+Verification:
+
+```bash
+npm test
+npm run build
+```
 
 ### Data Health Rules
 
@@ -400,3 +485,5 @@ authenticated proxy URL.
 - No exchange sync, private exchange APIs, trading, withdrawals, or real-time WebSocket pricing.
 - Portfolio history begins when real automatic snapshots are created; past values are not backfilled.
 - Coin search and price refresh depend on CoinGecko availability and rate limits.
+- Possible news context is left as a V6 feature. If added later, it should show public sources and
+  timestamps, remain optional, and never claim that a headline caused a price move.

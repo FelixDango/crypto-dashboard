@@ -9,6 +9,7 @@ import {
   type AnalyticsRange,
   type AnalyticsSummary
 } from '$lib/analytics/types';
+import { generateCycleWindows, getCycleProgress } from '$lib/server/insights/market-cycle';
 
 function validRange(value: string | null): AnalyticsRange {
   return ANALYTICS_RANGES.some((range) => range.value === value)
@@ -43,6 +44,11 @@ export const load: PageServerLoad = async ({ fetch, url }) => {
     drawdown,
     monthly,
     allocation,
-    health
+    health,
+    cycle: getCycleProgress(new Date()),
+    cycleWindows: generateCycleWindows(
+      new Date('2022-11-08T00:00:00.000Z'),
+      new Date('2038-07-02T00:00:00.000Z')
+    )
   };
 };

@@ -127,6 +127,7 @@ export type PortfolioSnapshotPriceStatus = 'fresh' | 'stale' | 'failed';
 export type SnapshotRange = '24h' | '7d' | '30d' | '90d' | '1y' | 'all';
 
 export type PortfolioSnapshotPoint = ChartPoint & {
+  bucketAt: string;
   capturedAt: string;
   priceStatus: PortfolioSnapshotPriceStatus;
   snapshotType: PortfolioSnapshotType;

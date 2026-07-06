@@ -3,11 +3,16 @@
   import { Camera, Plus, RefreshCw, TriangleAlert } from '@lucide/svelte';
   import type { EChartsOption } from 'echarts';
   import Chart from '$lib/components/Chart.svelte';
+  import CycleCard from '$lib/components/CycleCard.svelte';
+  import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import { formatCurrency, formatPercent, signedClass } from '$lib/format';
+  import type { CycleProgress, CycleWindow } from '$lib/server/insights/market-cycle';
   import type { PortfolioOverview, SnapshotRange } from '$lib/types';
 
   export let data: {
     overview: PortfolioOverview;
+    cycle: CycleProgress | null;
+    cycleWindows: CycleWindow[];
     snapshotRange: SnapshotRange;
     snapshotRanges: { value: SnapshotRange; label: string }[];
   };
@@ -19,6 +24,7 @@
 
   let allocationOption: EChartsOption;
   let valueOption: EChartsOption;
+  let showCycleOverlay = false;
   let refreshing = false;
   let refreshError = '';
 
@@ -56,8 +62,7 @@
     grid: { left: 16, right: 14, top: 18, bottom: 30, containLabel: true },
     tooltip: { trigger: 'axis' },
     xAxis: {
-      type: 'category',
-      data: overview.portfolioSeries.map((point) => point.label),
+      type: 'time',
       axisLabel: { color: '#99a5ad' },
       axisLine: { lineStyle: { color: '#2a343b' } }
     },
@@ -74,10 +79,32 @@
         areaStyle: { color: 'rgba(45, 212, 191, 0.12)' },
         lineStyle: { color: '#2dd4bf', width: 3 },
         itemStyle: { color: '#2dd4bf' },
-        data: overview.portfolioSeries.map((point) => Number(point.value))
+        data: overview.portfolioSeries.map(
+          (point) => [point.bucketAt, Number(point.value)] as [string, number]
+        ),
+        markArea: cycleMarkArea(showCycleOverlay)
       }
     ]
   };
+
+  function cycleMarkArea(enabled: boolean) {
+    if (!enabled) return undefined;
+
+    return {
+      silent: true,
+      itemStyle: { opacity: 0.08 },
+      data: data.cycleWindows.map(
+        (window) =>
+          [
+            {
+              xAxis: window.phaseStart,
+              itemStyle: { color: window.phase === 'bull' ? '#22c55e' : '#fb7185' }
+            },
+            { xAxis: window.phaseEndExclusive }
+          ] as [{ xAxis: string; itemStyle: { color: string } }, { xAxis: string }]
+      )
+    };
+  }
 
   async function refreshPrices() {
     refreshing = true;
@@ -119,38 +146,54 @@
     </div>
   {/if}
 
+  <CycleCard progress={data.cycle} compact />
+
   <div class="grid metric-grid dashboard-metrics">
     <article class="card metric-card">
       <span class="label">Portfolio value</span>
-      <strong class="value">{formatCurrency(overview.totals.currentValue, currency)}</strong>
+      <PrivacyValue
+        className="value"
+        value={formatCurrency(overview.totals.currentValue, currency)}
+        kind="fiat"
+      />
       <span class="meta">
         {overview.totals.stalePriceCount} stale / {overview.totals.missingPriceCount} missing
       </span>
     </article>
     <article class="card metric-card">
       <span class="label">Open cost basis</span>
-      <strong class="value">{formatCurrency(overview.totals.investedAmount, currency)}</strong>
+      <PrivacyValue
+        className="value"
+        value={formatCurrency(overview.totals.investedAmount, currency)}
+        kind="fiat"
+      />
       <span class="meta">Remaining FIFO lots</span>
     </article>
     <article class="card metric-card">
       <span class="label">Unrealized P/L</span>
-      <strong class="value {signedClass(overview.totals.unrealizedProfit)}">
-        {formatCurrency(overview.totals.unrealizedProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`value ${signedClass(overview.totals.unrealizedProfit)}`}
+        value={formatCurrency(overview.totals.unrealizedProfit, currency)}
+        kind="fiat"
+      />
       <span class="meta">Current value minus open cost</span>
     </article>
     <article class="card metric-card">
       <span class="label">Realized P/L</span>
-      <strong class="value {signedClass(overview.totals.realizedProfit)}">
-        {formatCurrency(overview.totals.realizedProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`value ${signedClass(overview.totals.realizedProfit)}`}
+        value={formatCurrency(overview.totals.realizedProfit, currency)}
+        kind="fiat"
+      />
       <span class="meta">Closed FIFO disposals</span>
     </article>
     <article class="card metric-card">
       <span class="label">Total P/L</span>
-      <strong class="value {signedClass(overview.totals.totalProfit)}">
-        {formatCurrency(overview.totals.totalProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`value ${signedClass(overview.totals.totalProfit)}`}
+        value={formatCurrency(overview.totals.totalProfit, currency)}
+        kind="fiat"
+      />
       <span class="meta">Realized plus unrealized</span>
     </article>
     <article class="card metric-card">
@@ -182,6 +225,10 @@
             </a>
           {/each}
         </nav>
+        <label class="overlay-toggle">
+          <input type="checkbox" bind:checked={showCycleOverlay} />
+          <span>Cycle overlay</span>
+        </label>
       </div>
       {#if overview.holdings.length === 0}
         <div class="empty-state">
@@ -204,7 +251,12 @@
           <p class="muted">No {snapshotSeries.snapshotType} snapshots in this range.</p>
         </div>
       {:else}
-        <Chart option={valueOption} label="Portfolio value chart" summary={chartSummary} />
+        <Chart
+          option={valueOption}
+          label="Portfolio value chart"
+          summary={chartSummary}
+          sensitive
+        />
       {/if}
     </section>
 
@@ -256,15 +308,21 @@
 
     <section class="card performer">
       <span class="muted">Realized P/L</span>
-      <strong class={signedClass(overview.totals.realizedProfit)}>
-        {formatCurrency(overview.totals.realizedProfit, currency)}
-      </strong>
+      <PrivacyValue
+        className={`performer-amount ${signedClass(overview.totals.realizedProfit)}`}
+        value={formatCurrency(overview.totals.realizedProfit, currency)}
+        kind="fiat"
+      />
       <span class="muted">FIFO disposals</span>
     </section>
 
     <section class="card performer">
       <span class="muted">Total fees</span>
-      <strong>{formatCurrency(overview.totals.totalFees, currency)}</strong>
+      <PrivacyValue
+        className="performer-amount"
+        value={formatCurrency(overview.totals.totalFees, currency)}
+        kind="fiat"
+      />
       <span class="muted">Normalized into {currency}</span>
     </section>
   </div>
@@ -285,6 +343,10 @@
 
   .dashboard-main {
     margin-top: 1rem;
+  }
+
+  .cycle-card {
+    margin-bottom: 1rem;
   }
 
   .dashboard-metrics {
@@ -317,6 +379,23 @@
     padding: 0.2rem;
   }
 
+  .overlay-toggle {
+    align-items: center;
+    color: var(--muted);
+    display: inline-flex;
+    font-size: 0.82rem;
+    font-weight: 800;
+    gap: 0.45rem;
+    min-height: 2rem;
+    white-space: nowrap;
+  }
+
+  .overlay-toggle input {
+    accent-color: var(--accent);
+    min-height: auto;
+    width: auto;
+  }
+
   .range-tabs a {
     align-items: center;
     border-radius: 6px;
@@ -346,8 +425,10 @@
     gap: 0.4rem;
   }
 
-  .performer strong {
+  .performer strong,
+  :global(.performer-amount) {
     font-size: 1.35rem;
+    font-weight: 700;
   }
 
   @media (max-width: 1180px) {

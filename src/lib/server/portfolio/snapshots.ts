@@ -247,6 +247,7 @@ function toPoint(row: PortfolioSnapshotRow, range: SnapshotRange): PortfolioSnap
   return {
     label: pointLabel(row, range),
     value: row.totalValue,
+    bucketAt: row.bucketAt,
     capturedAt: row.capturedAt,
     priceStatus: row.priceStatus,
     snapshotType: row.snapshotType
