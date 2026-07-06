@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Currency, TransactionRecord } from '$lib/types';
 import { transactionInputSchema } from '$lib/validation/transaction';
 import { db, getSqlite } from './db/client';
-import { importBatches, transactions } from './db/schema';
-import { createTransaction } from './transactions';
+import { importBatches, portfolioSnapshots, transactions } from './db/schema';
+import { listLotDisposals, listOpenLots, rebuildPortfolioAccounting } from './portfolio/accounting';
+import { createTransactionWithoutAccounting } from './transactions';
 
 const headers = [
   'type',
@@ -21,6 +22,55 @@ const headers = [
   'fee_currency',
   'transaction_date',
   'notes'
+];
+
+const openLotHeaders = [
+  'lot_id',
+  'asset_id',
+  'asset_symbol',
+  'asset_name',
+  'source_transaction_id',
+  'original_quantity',
+  'remaining_quantity',
+  'cost_basis_total',
+  'cost_basis_per_unit',
+  'fiat_currency',
+  'acquired_at',
+  'created_at',
+  'updated_at'
+];
+
+const realizedPnlHeaders = [
+  'disposal_id',
+  'sell_transaction_id',
+  'lot_id',
+  'asset_id',
+  'asset_symbol',
+  'asset_name',
+  'quantity_sold',
+  'proceeds_amount',
+  'cost_basis_amount',
+  'realized_profit',
+  'fiat_currency',
+  'acquired_at',
+  'disposed_at',
+  'created_at'
+];
+
+const snapshotHeaders = [
+  'snapshot_id',
+  'snapshot_type',
+  'base_currency',
+  'bucket_at',
+  'total_value',
+  'total_invested',
+  'unrealized_profit',
+  'roi_percent',
+  'price_status',
+  'captured_at',
+  'created_at',
+  'holdings_json',
+  'prices_json'
 ];
 
 function safeCell(value: string | null | undefined): string {
@@ -141,6 +191,71 @@ export function exportTransactionsToCsv(transactions: TransactionRecord[]): stri
   return stringify(records, { header: true, columns: headers });
 }
 
+export function exportOpenLotsToCsv(): string {
+  const records = listOpenLots().map((lot) => ({
+    lot_id: lot.id,
+    asset_id: lot.assetId,
+    asset_symbol: safeCell(lot.assetSymbol),
+    asset_name: safeCell(lot.assetName),
+    source_transaction_id: lot.sourceTransactionId,
+    original_quantity: lot.originalQuantity,
+    remaining_quantity: lot.remainingQuantity,
+    cost_basis_total: lot.costBasisTotal,
+    cost_basis_per_unit: lot.costBasisPerUnit,
+    fiat_currency: lot.fiatCurrency,
+    acquired_at: lot.acquiredAt,
+    created_at: lot.createdAt,
+    updated_at: lot.updatedAt
+  }));
+
+  return stringify(records, { header: true, columns: openLotHeaders });
+}
+
+export function exportRealizedPnlToCsv(): string {
+  const records = listLotDisposals().map((disposal) => ({
+    disposal_id: disposal.id,
+    sell_transaction_id: disposal.sellTransactionId,
+    lot_id: disposal.lotId,
+    asset_id: disposal.assetId,
+    asset_symbol: safeCell(disposal.assetSymbol),
+    asset_name: safeCell(disposal.assetName),
+    quantity_sold: disposal.quantitySold,
+    proceeds_amount: disposal.proceedsAmount,
+    cost_basis_amount: disposal.costBasisAmount,
+    realized_profit: disposal.realizedProfit,
+    fiat_currency: disposal.fiatCurrency,
+    acquired_at: disposal.acquiredAt,
+    disposed_at: disposal.disposedAt,
+    created_at: disposal.createdAt
+  }));
+
+  return stringify(records, { header: true, columns: realizedPnlHeaders });
+}
+
+export function exportPortfolioSnapshotsToCsv(): string {
+  const records = db
+    .select()
+    .from(portfolioSnapshots)
+    .all()
+    .map((snapshot) => ({
+      snapshot_id: snapshot.id,
+      snapshot_type: snapshot.snapshotType,
+      base_currency: snapshot.baseCurrency,
+      bucket_at: snapshot.bucketAt,
+      total_value: snapshot.totalValue,
+      total_invested: snapshot.totalInvested,
+      unrealized_profit: snapshot.unrealizedProfit,
+      roi_percent: snapshot.roiPercent,
+      price_status: snapshot.priceStatus,
+      captured_at: snapshot.capturedAt,
+      created_at: snapshot.createdAt,
+      holdings_json: safeCell(snapshot.holdingsJson),
+      prices_json: safeCell(snapshot.pricesJson)
+    }));
+
+  return stringify(records, { header: true, columns: snapshotHeaders });
+}
+
 export function previewTransactionsCsv(content: string): CsvPreview {
   const parsed = parseTransactionsCsv(content);
   const seen = new Set<string>();
@@ -172,10 +287,10 @@ export function previewTransactionsCsv(content: string): CsvPreview {
   };
 }
 
-export function importTransactionsFromCsv(
+export async function importTransactionsFromCsv(
   content: string,
   filename: string | null = null
-): { imported: number; duplicates: number; batchId: string } {
+): Promise<{ imported: number; duplicates: number; batchId: string }> {
   const parsed = parseTransactionsCsv(content);
   const seen = new Set<string>();
   const importable = parsed.filter((row) => {
@@ -200,13 +315,15 @@ export function importTransactionsFromCsv(
       .run();
 
     for (const row of importable) {
-      createTransaction({
+      createTransactionWithoutAccounting({
         ...row.input,
         importBatchId: batchId,
         rowHash: row.hash
       });
     }
   })();
+
+  await rebuildPortfolioAccounting();
 
   return { imported: importable.length, duplicates, batchId };
 }

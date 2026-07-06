@@ -25,7 +25,7 @@ describe('CSV import', () => {
     expect(preview.importableRows).toBe(1);
     expect(preview.duplicateRows).toBe(1);
 
-    const result = importTransactionsFromCsv(csv, 'sample.csv');
+    const result = await importTransactionsFromCsv(csv, 'sample.csv');
     expect(result.imported).toBe(1);
     expect(result.duplicates).toBe(1);
     expect(listTransactions()).toHaveLength(1);

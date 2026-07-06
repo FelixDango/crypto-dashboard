@@ -6,6 +6,11 @@ import { listTransactionsWithAssets } from '$lib/server/transactions';
 import { getAppSettings } from '$lib/server/settings';
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { getCachedPricesForAssets } from '$lib/server/prices/cache';
+import {
+  ensurePortfolioAccounting,
+  listLotDisposals,
+  listOpenLots
+} from '$lib/server/portfolio/accounting';
 import { DEFAULT_SNAPSHOT_RANGE, listPortfolioSnapshotSeries } from './snapshots';
 
 function activeAssets(holdings: HoldingSummary[]) {
@@ -19,6 +24,7 @@ function activeAssets(holdings: HoldingSummary[]) {
 export async function getPortfolioOverview(
   options: { snapshotRange?: SnapshotRange } = {}
 ): Promise<PortfolioOverview> {
+  await ensurePortfolioAccounting();
   const settings = getAppSettings();
   const transactionsWithAssets = listTransactionsWithAssets();
   const normalizedTransactions = await normalizeTransactions(
@@ -55,6 +61,17 @@ export async function getPortfolioOverview(
 export async function getAssetOverview(assetId: string) {
   const overview = await getPortfolioOverview();
   return overview.holdings.find((holding) => holding.assetId === assetId) ?? null;
+}
+
+export async function getAssetAccountingOverview(assetId: string) {
+  const asset = await getAssetOverview(assetId);
+  if (!asset) return null;
+
+  return {
+    asset,
+    openLots: listOpenLots(assetId),
+    disposals: listLotDisposals(assetId)
+  };
 }
 
 export function getTransactionCount(): number {

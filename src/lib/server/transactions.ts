@@ -1,11 +1,15 @@
-import Decimal from 'decimal.js';
 import { desc, eq, ne } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AssetRecord, Currency, TransactionRecord, TransactionType } from '$lib/types';
 import { db } from './db/client';
 import { assets, transactions, type AssetRow, type TransactionRow } from './db/schema';
 import { UserInputError } from './errors';
-import { type AssetInput, upsertAsset } from './assets';
+import { createAssetId, type AssetInput, upsertAsset } from './assets';
+import {
+  assertNoNegativeHoldings,
+  rebuildPortfolioAccounting,
+  type AccountingBalanceTransaction
+} from './portfolio/accounting';
 
 export type TransactionInput = {
   asset: AssetInput;
@@ -20,6 +24,15 @@ export type TransactionInput = {
   transactionDate: string;
   notes?: string | null;
 };
+
+let lastCreatedAtMs = 0;
+
+function nextCreatedAt(): string {
+  const now = Date.now();
+  const next = now <= lastCreatedAtMs ? lastCreatedAtMs + 1 : now;
+  lastCreatedAtMs = next;
+  return new Date(next).toISOString();
+}
 
 function mapTransaction(row: TransactionRow): TransactionRecord {
   return {
@@ -87,39 +100,50 @@ export function getTransaction(id: string): TransactionRecord | null {
   return row ? mapTransaction(row) : null;
 }
 
-function getOpenQuantity(assetId: string, excludeTransactionId?: string): Decimal {
+function toBalanceTransaction(row: TransactionRow): AccountingBalanceTransaction {
+  return {
+    id: row.id,
+    assetId: row.assetId,
+    assetSymbol: row.assetSymbol,
+    type: row.type,
+    quantity: row.quantity,
+    transactionDate: row.transactionDate,
+    createdAt: row.createdAt
+  };
+}
+
+function assertMutationDoesNotOversell(
+  proposed?: AccountingBalanceTransaction,
+  excludeTransactionId?: string
+): void {
   const query = excludeTransactionId
     ? db.select().from(transactions).where(ne(transactions.id, excludeTransactionId)).all()
     : db.select().from(transactions).all();
+  const rows = query.map(toBalanceTransaction);
 
-  return query
-    .filter((transaction) => transaction.assetId === assetId)
-    .reduce((total, transaction) => {
-      const quantity = new Decimal(transaction.quantity);
-      return transaction.type === 'buy' ? total.plus(quantity) : total.minus(quantity);
-    }, new Decimal(0));
+  if (proposed) rows.push(proposed);
+  assertNoNegativeHoldings(rows);
 }
 
-function assertSellIsCovered(
-  assetId: string,
-  input: TransactionInput,
-  excludeTransactionId?: string
-) {
-  if (input.type !== 'sell') return;
-  const currentQuantity = getOpenQuantity(assetId, excludeTransactionId);
-  const sellQuantity = new Decimal(input.quantity);
-  if (sellQuantity.gt(currentQuantity)) {
-    throw new UserInputError('Sell quantity exceeds the currently recorded holding.');
-  }
-}
+export function createTransactionWithoutAccounting(input: TransactionInput): TransactionRecord {
+  const now = nextCreatedAt();
+  const assetId = createAssetId(input.asset.provider ?? 'coingecko', input.asset.providerCoinId);
+  const id = randomUUID();
 
-export function createTransaction(input: TransactionInput): TransactionRecord {
+  assertMutationDoesNotOversell({
+    id,
+    assetId,
+    assetSymbol: input.asset.symbol,
+    type: input.type,
+    quantity: input.quantity,
+    transactionDate: input.transactionDate,
+    createdAt: now
+  });
+
   const asset = upsertAsset(input.asset);
-  assertSellIsCovered(asset.id, input);
-  const now = new Date().toISOString();
 
   const row = {
-    id: randomUUID(),
+    id,
     assetId: asset.id,
     assetSymbol: asset.symbol,
     assetName: asset.name,
@@ -141,12 +165,34 @@ export function createTransaction(input: TransactionInput): TransactionRecord {
   return mapTransaction(row);
 }
 
-export function updateTransaction(id: string, input: TransactionInput): TransactionRecord {
+export async function createTransaction(input: TransactionInput): Promise<TransactionRecord> {
+  const transaction = createTransactionWithoutAccounting(input);
+  await rebuildPortfolioAccounting();
+  return transaction;
+}
+
+export async function updateTransaction(
+  id: string,
+  input: TransactionInput
+): Promise<TransactionRecord> {
   const existing = getTransaction(id);
   if (!existing) throw new UserInputError('Transaction not found.');
 
+  const assetId = createAssetId(input.asset.provider ?? 'coingecko', input.asset.providerCoinId);
+  assertMutationDoesNotOversell(
+    {
+      id,
+      assetId,
+      assetSymbol: input.asset.symbol,
+      type: input.type,
+      quantity: input.quantity,
+      transactionDate: input.transactionDate,
+      createdAt: existing.createdAt
+    },
+    id
+  );
+
   const asset = upsertAsset(input.asset);
-  assertSellIsCovered(asset.id, input, id);
   const now = new Date().toISOString();
 
   db.update(transactions)
@@ -171,9 +217,14 @@ export function updateTransaction(id: string, input: TransactionInput): Transact
 
   const updated = getTransaction(id);
   if (!updated) throw new Error('Failed to update transaction.');
+  await rebuildPortfolioAccounting();
   return updated;
 }
 
-export function deleteTransaction(id: string): void {
+export async function deleteTransaction(id: string): Promise<void> {
+  const existing = getTransaction(id);
+  if (!existing) throw new UserInputError('Transaction not found.');
+  assertMutationDoesNotOversell(undefined, id);
   db.delete(transactions).where(eq(transactions.id, id)).run();
+  await rebuildPortfolioAccounting();
 }

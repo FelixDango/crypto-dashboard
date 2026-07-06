@@ -3,6 +3,7 @@ import { getDatabasePath } from '$lib/server/db/client';
 import { getAppSettings, updateAppSettings } from '$lib/server/settings';
 import { listPriceProviders } from '$lib/server/prices/providers';
 import { settingsSchema } from '$lib/validation/settings';
+import { rebuildPortfolioAccounting } from '$lib/server/portfolio/accounting';
 
 export function load() {
   return {
@@ -27,6 +28,7 @@ export const actions = {
     }
 
     updateAppSettings(parsed.data);
+    await rebuildPortfolioAccounting();
     return { success: true };
   }
 };

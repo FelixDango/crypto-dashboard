@@ -88,6 +88,7 @@ export type HoldingSummary = {
   totalBuyCost: string;
   costBasis: string;
   unrealizedProfit: string;
+  totalProfit: string;
   roiPercent: string;
   realizedProfit: string;
   realizedProfitApprox: string;
@@ -106,6 +107,7 @@ export type PortfolioTotals = {
   investedAmount: string;
   totalBuyCost: string;
   unrealizedProfit: string;
+  totalProfit: string;
   roiPercent: string;
   realizedProfit: string;
   realizedProfitApprox: string;

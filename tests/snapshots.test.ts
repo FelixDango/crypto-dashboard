@@ -19,7 +19,7 @@ async function seedHolding(priceCapturedAt = new Date().toISOString(), price = '
   const { db } = await import('../src/lib/server/db/client');
   const { priceSnapshots } = await import('../src/lib/server/db/schema');
 
-  createTransaction({
+  await createTransaction({
     asset: {
       provider: 'coingecko',
       providerCoinId: 'bitcoin',

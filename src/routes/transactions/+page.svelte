@@ -160,7 +160,7 @@
       <p class="muted">{data.transactions.length} manual entries</p>
     </div>
     <div class="toolbar">
-      <a class="btn" href="/api/export">
+      <a class="btn" href="/api/export?type=transactions">
         <Download size={17} />
         CSV
       </a>

@@ -10,8 +10,34 @@
   } from '$lib/format';
   import type { HoldingSummary } from '$lib/types';
 
+  type OpenLot = {
+    id: string;
+    sourceTransactionId: string;
+    originalQuantity: string;
+    remainingQuantity: string;
+    costBasisTotal: string;
+    costBasisPerUnit: string;
+    fiatCurrency: 'EUR' | 'USD';
+    acquiredAt: string;
+  };
+
+  type Disposal = {
+    id: string;
+    sellTransactionId: string;
+    lotId: string;
+    quantitySold: string;
+    proceedsAmount: string;
+    costBasisAmount: string;
+    realizedProfit: string;
+    fiatCurrency: 'EUR' | 'USD';
+    acquiredAt: string;
+    disposedAt: string;
+  };
+
   export let data: {
     asset: HoldingSummary;
+    openLots: OpenLot[];
+    disposals: Disposal[];
     baseCurrency: 'EUR' | 'USD';
   };
 
@@ -43,26 +69,28 @@
 
   <div class="grid metric-grid">
     <article class="card metric-card">
-      <span class="label">Quantity</span>
+      <span class="label">Current holdings</span>
       <strong class="value">{formatCrypto(asset.quantity)}</strong>
       <span class="meta">Current recorded balance</span>
     </article>
     <article class="card metric-card">
-      <span class="label">Average cost</span>
-      <strong class="value">{formatCurrency(asset.averageCost, currency)}</strong>
-      <span class="meta">Chronological average cost</span>
+      <span class="label">Current value</span>
+      <strong class="value">{formatCurrency(asset.currentValue, currency)}</strong>
+      <span class="meta">{formatCurrency(asset.currentPrice, currency)} per unit</span>
+    </article>
+    <article class="card metric-card">
+      <span class="label">Unrealized P/L</span>
+      <strong class="value {signedClass(asset.unrealizedProfit)}">
+        {formatCurrency(asset.unrealizedProfit, currency)}
+      </strong>
+      <span class="meta">Current value minus open cost</span>
     </article>
     <article class="card metric-card">
       <span class="label">Realized P/L</span>
       <strong class="value {signedClass(asset.realizedProfit)}">
         {formatCurrency(asset.realizedProfit, currency)}
       </strong>
-      <span class="meta">Sells matched to running average</span>
-    </article>
-    <article class="card metric-card">
-      <span class="label">Total fees</span>
-      <strong class="value">{formatCurrency(asset.totalFees, currency)}</strong>
-      <span class="meta">Normalized into base currency</span>
+      <span class="meta">FIFO disposals</span>
     </article>
   </div>
 
@@ -74,26 +102,26 @@
       </div>
       <dl class="detail-list">
         <div>
-          <dt>Current price</dt>
-          <dd>{formatCurrency(asset.currentPrice, currency)}</dd>
-        </div>
-        <div>
-          <dt>Current value</dt>
-          <dd>{formatCurrency(asset.currentValue, currency)}</dd>
-        </div>
-        <div>
           <dt>Open cost basis</dt>
           <dd>{formatCurrency(asset.costBasis, currency)}</dd>
         </div>
         <div>
-          <dt>Unrealized P/L</dt>
-          <dd class={signedClass(asset.unrealizedProfit)}>
-            {formatCurrency(asset.unrealizedProfit, currency)}
+          <dt>Average open cost</dt>
+          <dd>{formatCurrency(asset.averageCost, currency)}</dd>
+        </div>
+        <div>
+          <dt>Total P/L</dt>
+          <dd class={signedClass(asset.totalProfit)}>
+            {formatCurrency(asset.totalProfit, currency)}
           </dd>
         </div>
         <div>
-          <dt>ROI</dt>
+          <dt>Total ROI</dt>
           <dd class={signedClass(asset.roiPercent)}>{formatPercent(asset.roiPercent)}</dd>
+        </div>
+        <div>
+          <dt>Total fees</dt>
+          <dd>{formatCurrency(asset.totalFees, currency)}</dd>
         </div>
         <div>
           <dt>Price source</dt>
@@ -108,54 +136,117 @@
 
     <section class="card">
       <div class="section-head">
-        <h2>Calculation notes</h2>
+        <h2>Position</h2>
       </div>
-      <p class="muted">
-        Buys add fiat plus fees to cost basis. Sells realize profit against the average cost before
-        the sell, then reduce the remaining open cost basis.
-      </p>
+      <dl class="detail-list">
+        <div>
+          <dt>Current price</dt>
+          <dd>{formatCurrency(asset.currentPrice, currency)}</dd>
+        </div>
+        <div>
+          <dt>Current value</dt>
+          <dd>{formatCurrency(asset.currentValue, currency)}</dd>
+        </div>
+        <div>
+          <dt>Allocation</dt>
+          <dd>{formatPercent(asset.allocationPercent)}</dd>
+        </div>
+        <div>
+          <dt>Total buy cost</dt>
+          <dd>{formatCurrency(asset.totalBuyCost, currency)}</dd>
+        </div>
+      </dl>
     </section>
   </div>
 
   <section class="card ledger-card">
     <div class="section-head">
-      <h2>Running ledger</h2>
-      <span class="muted">{asset.ledger.length} entries</span>
+      <h2>Open lots</h2>
+      <span class="muted">{data.openLots.length} lots</span>
     </div>
-    <div class="table-wrap mobile-cards">
-      <table class="mobile-card-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Quantity</th>
-            <th>Fiat</th>
-            <th>FX</th>
-            <th>Running qty</th>
-            <th>Avg cost</th>
-            <th>Cost basis</th>
-            <th>Realized P/L</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each asset.ledger as entry}
+    {#if data.openLots.length === 0}
+      <div class="empty-state compact">
+        <p class="muted">No open lots.</p>
+      </div>
+    {:else}
+      <div class="table-wrap mobile-cards">
+        <table class="mobile-card-table">
+          <thead>
             <tr>
-              <td data-label="Date">{formatDate(entry.transactionDate)}</td>
-              <td data-label="Type">{entry.type}</td>
-              <td data-label="Quantity">{formatCrypto(entry.quantity)}</td>
-              <td data-label="Fiat">{formatCurrency(entry.normalizedFiatAmount, currency)}</td>
-              <td data-label="FX">{entry.fxRate} · {entry.fxSource}</td>
-              <td data-label="Running qty">{formatCrypto(entry.runningQuantity)}</td>
-              <td data-label="Avg cost">{formatCurrency(entry.runningAverageCost, currency)}</td>
-              <td data-label="Cost basis">{formatCurrency(entry.runningCostBasis, currency)}</td>
-              <td data-label="Realized P/L" class={signedClass(entry.realizedProfit)}>
-                {formatCurrency(entry.realizedProfit, currency)}
-              </td>
+              <th>Acquired</th>
+              <th>Original qty</th>
+              <th>Remaining qty</th>
+              <th>Unit cost</th>
+              <th>Open cost</th>
+              <th>Source</th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {#each data.openLots as lot}
+              <tr>
+                <td data-label="Acquired">{formatDate(lot.acquiredAt)}</td>
+                <td data-label="Original qty">{formatCrypto(lot.originalQuantity)}</td>
+                <td data-label="Remaining qty">{formatCrypto(lot.remainingQuantity)}</td>
+                <td data-label="Unit cost">
+                  {formatCurrency(lot.costBasisPerUnit, lot.fiatCurrency)}
+                </td>
+                <td data-label="Open cost">
+                  {formatCurrency(lot.costBasisTotal, lot.fiatCurrency)}
+                </td>
+                <td data-label="Source"><code>{lot.sourceTransactionId.slice(0, 8)}</code></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </section>
+
+  <section class="card ledger-card">
+    <div class="section-head">
+      <h2>Disposals</h2>
+      <span class="muted">{data.disposals.length} rows</span>
     </div>
+    {#if data.disposals.length === 0}
+      <div class="empty-state compact">
+        <p class="muted">No sells recorded.</p>
+      </div>
+    {:else}
+      <div class="table-wrap mobile-cards">
+        <table class="mobile-card-table">
+          <thead>
+            <tr>
+              <th>Disposed</th>
+              <th>Acquired</th>
+              <th>Quantity sold</th>
+              <th>Proceeds</th>
+              <th>Cost basis</th>
+              <th>Realized P/L</th>
+              <th>Lot</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each data.disposals as disposal}
+              <tr>
+                <td data-label="Disposed">{formatDate(disposal.disposedAt)}</td>
+                <td data-label="Acquired">{formatDate(disposal.acquiredAt)}</td>
+                <td data-label="Quantity sold">{formatCrypto(disposal.quantitySold)}</td>
+                <td data-label="Proceeds">
+                  {formatCurrency(disposal.proceedsAmount, disposal.fiatCurrency)}
+                </td>
+                <td data-label="Cost basis">
+                  {formatCurrency(disposal.costBasisAmount, disposal.fiatCurrency)}
+                </td>
+                <td data-label="Realized P/L" class={signedClass(disposal.realizedProfit)}>
+                  {formatCurrency(disposal.realizedProfit, disposal.fiatCurrency)}
+                </td>
+                <td data-label="Lot"><code>{disposal.lotId.slice(0, 8)}</code></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   </section>
 </section>
 
@@ -202,6 +293,15 @@
 
   dd {
     margin: 0.15rem 0 0;
+  }
+
+  code {
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+
+  .compact {
+    min-height: 84px;
   }
 
   .status {

@@ -31,7 +31,7 @@
   $: chartSummary = `Portfolio value is ${formatCurrency(
     overview.totals.currentValue,
     currency
-  )}. Unrealized profit and loss is ${formatCurrency(overview.totals.unrealizedProfit, currency)}.`;
+  )}. Total profit and loss is ${formatCurrency(overview.totals.totalProfit, currency)}.`;
   $: allocationOption = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item' },
@@ -98,7 +98,7 @@
   <div class="page-header">
     <div class="page-title">
       <h1>Dashboard</h1>
-      <p class="muted">Average-cost portfolio view in {currency}</p>
+      <p class="muted">FIFO portfolio view in {currency}</p>
     </div>
     <div class="toolbar">
       <button class="btn" type="button" on:click={refreshPrices} disabled={refreshing}>
@@ -119,7 +119,7 @@
     </div>
   {/if}
 
-  <div class="grid metric-grid">
+  <div class="grid metric-grid dashboard-metrics">
     <article class="card metric-card">
       <span class="label">Portfolio value</span>
       <strong class="value">{formatCurrency(overview.totals.currentValue, currency)}</strong>
@@ -128,9 +128,9 @@
       </span>
     </article>
     <article class="card metric-card">
-      <span class="label">Invested</span>
+      <span class="label">Open cost basis</span>
       <strong class="value">{formatCurrency(overview.totals.investedAmount, currency)}</strong>
-      <span class="meta">Open cost basis</span>
+      <span class="meta">Remaining FIFO lots</span>
     </article>
     <article class="card metric-card">
       <span class="label">Unrealized P/L</span>
@@ -140,7 +140,21 @@
       <span class="meta">Current value minus open cost</span>
     </article>
     <article class="card metric-card">
-      <span class="label">ROI</span>
+      <span class="label">Realized P/L</span>
+      <strong class="value {signedClass(overview.totals.realizedProfit)}">
+        {formatCurrency(overview.totals.realizedProfit, currency)}
+      </strong>
+      <span class="meta">Closed FIFO disposals</span>
+    </article>
+    <article class="card metric-card">
+      <span class="label">Total P/L</span>
+      <strong class="value {signedClass(overview.totals.totalProfit)}">
+        {formatCurrency(overview.totals.totalProfit, currency)}
+      </strong>
+      <span class="meta">Realized plus unrealized</span>
+    </article>
+    <article class="card metric-card">
+      <span class="label">Total ROI</span>
       <strong class="value {signedClass(overview.totals.roiPercent)}">
         {formatPercent(overview.totals.roiPercent)}
       </strong>
@@ -245,7 +259,7 @@
       <strong class={signedClass(overview.totals.realizedProfit)}>
         {formatCurrency(overview.totals.realizedProfit, currency)}
       </strong>
-      <span class="muted">Chronological average cost</span>
+      <span class="muted">FIFO disposals</span>
     </section>
 
     <section class="card performer">
@@ -271,6 +285,10 @@
 
   .dashboard-main {
     margin-top: 1rem;
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .section-head {
@@ -332,7 +350,17 @@
     font-size: 1.35rem;
   }
 
+  @media (max-width: 1180px) {
+    .dashboard-metrics {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
   @media (max-width: 820px) {
+    .dashboard-metrics {
+      grid-template-columns: 1fr;
+    }
+
     .performer-grid {
       grid-template-columns: 1fr;
     }

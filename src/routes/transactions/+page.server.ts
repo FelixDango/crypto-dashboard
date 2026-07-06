@@ -33,7 +33,7 @@ export function load() {
 export const actions = {
   create: async ({ request }) => {
     try {
-      createTransaction(parseTransactionForm(await request.formData()));
+      await createTransaction(parseTransactionForm(await request.formData()));
       return { success: true, intent: 'create' };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'create' });
@@ -46,7 +46,7 @@ export const actions = {
     if (!id) return fail(400, { error: 'Missing transaction id.', intent: 'update' });
 
     try {
-      updateTransaction(id, parseTransactionForm(formData));
+      await updateTransaction(id, parseTransactionForm(formData));
       return { success: true, intent: 'update' };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'update' });
@@ -58,8 +58,12 @@ export const actions = {
     const id = formData.get('id')?.toString();
     if (!id) return fail(400, { error: 'Missing transaction id.', intent: 'delete' });
 
-    deleteTransaction(id);
-    return { success: true, intent: 'delete' };
+    try {
+      await deleteTransaction(id);
+      return { success: true, intent: 'delete' };
+    } catch (error) {
+      return fail(400, { error: actionError(error), intent: 'delete' });
+    }
   },
 
   previewCsv: async ({ request }) => {
@@ -95,7 +99,10 @@ export const actions = {
     }
 
     try {
-      const result = importTransactionsFromCsv(content || (await (file as File).text()), filename);
+      const result = await importTransactionsFromCsv(
+        content || (await (file as File).text()),
+        filename
+      );
       return {
         success: true,
         intent: 'importCsv',

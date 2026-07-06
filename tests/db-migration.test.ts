@@ -19,6 +19,8 @@ describe('database migrations', () => {
     expect(tables).toContain('transactions');
     expect(tables).toContain('price_snapshots');
     expect(tables).toContain('portfolio_snapshots');
+    expect(tables).toContain('asset_lots');
+    expect(tables).toContain('lot_disposals');
     expect(tables).toContain('fx_rates');
     expect(tables).toContain('import_batches');
     expect(tables).toContain('settings');
@@ -35,5 +37,12 @@ describe('database migrations', () => {
       .all()
       .map((row) => (row as { name: string }).name);
     expect(snapshotIndexes).toContain('portfolio_snapshots_bucket_unique');
+
+    const lotColumns = sqlite
+      .prepare('PRAGMA table_info(asset_lots)')
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(lotColumns).toContain('remaining_quantity');
+    expect(lotColumns).toContain('cost_basis_per_unit');
   });
 });

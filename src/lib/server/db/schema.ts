@@ -117,6 +117,62 @@ export const portfolioSnapshots = sqliteTable(
   })
 );
 
+export const assetLots = sqliteTable(
+  'asset_lots',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    sourceTransactionId: text('source_transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    originalQuantity: text('original_quantity').notNull(),
+    remainingQuantity: text('remaining_quantity').notNull(),
+    costBasisTotal: text('cost_basis_total').notNull(),
+    costBasisPerUnit: text('cost_basis_per_unit').notNull(),
+    fiatCurrency: text('fiat_currency').$type<Currency>().notNull(),
+    acquiredAt: text('acquired_at').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => ({
+    sourceTransactionUnique: uniqueIndex('asset_lots_source_transaction_unique').on(
+      table.sourceTransactionId
+    ),
+    assetAcquiredIndex: index('asset_lots_asset_acquired_idx').on(
+      table.assetId,
+      table.acquiredAt,
+      table.createdAt
+    ),
+    remainingIndex: index('asset_lots_remaining_idx').on(table.assetId, table.remainingQuantity)
+  })
+);
+
+export const lotDisposals = sqliteTable(
+  'lot_disposals',
+  {
+    id: text('id').primaryKey(),
+    sellTransactionId: text('sell_transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    lotId: text('lot_id')
+      .notNull()
+      .references(() => assetLots.id, { onDelete: 'cascade' }),
+    quantitySold: text('quantity_sold').notNull(),
+    proceedsAmount: text('proceeds_amount').notNull(),
+    costBasisAmount: text('cost_basis_amount').notNull(),
+    realizedProfit: text('realized_profit').notNull(),
+    disposedAt: text('disposed_at').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => ({
+    sellTransactionIndex: index('lot_disposals_sell_transaction_idx').on(table.sellTransactionId),
+    lotIndex: index('lot_disposals_lot_idx').on(table.lotId),
+    disposedIndex: index('lot_disposals_disposed_idx').on(table.disposedAt)
+  })
+);
+
 export const fxRates = sqliteTable(
   'fx_rates',
   {
@@ -149,6 +205,10 @@ export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type PriceSnapshotRow = typeof priceSnapshots.$inferSelect;
 export type PortfolioSnapshotRow = typeof portfolioSnapshots.$inferSelect;
+export type AssetLotRow = typeof assetLots.$inferSelect;
+export type NewAssetLotRow = typeof assetLots.$inferInsert;
+export type LotDisposalRow = typeof lotDisposals.$inferSelect;
+export type NewLotDisposalRow = typeof lotDisposals.$inferInsert;
 export type FxRateRow = typeof fxRates.$inferSelect;
 export type ImportBatchRow = typeof importBatches.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;

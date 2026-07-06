@@ -22,10 +22,17 @@ type MutableHolding = {
   totalBuyCost: Decimal;
   realizedProfit: Decimal;
   totalFees: Decimal;
+  lots: OpenCalculationLot[];
   ledger: TransactionLedgerEntry[];
 };
 
 type CalculationTransaction = TransactionRecord | NormalizedTransactionRecord;
+
+type OpenCalculationLot = {
+  remainingQuantity: Decimal;
+  costBasisPerUnit: Decimal;
+  costBasisTotal: Decimal;
+};
 
 function zeroTotals(baseCurrency: Currency): PortfolioTotals {
   return {
@@ -34,6 +41,7 @@ function zeroTotals(baseCurrency: Currency): PortfolioTotals {
     investedAmount: '0',
     totalBuyCost: '0',
     unrealizedProfit: '0',
+    totalProfit: '0',
     roiPercent: '0',
     realizedProfit: '0',
     realizedProfitApprox: '0',
@@ -104,31 +112,69 @@ export function calculateHoldings(
         totalBuyCost: new Decimal(0),
         realizedProfit: new Decimal(0),
         totalFees: new Decimal(0),
+        lots: [],
         ledger: []
       } satisfies MutableHolding);
 
     const quantity = asDecimal(transaction.quantity);
     const fiatAmount = normalizedFiat(transaction);
     const feeAmount = normalizedFee(transaction);
-    const averageCostBefore = existing.currentQuantity.gt(0)
-      ? existing.costBasis.div(existing.currentQuantity)
-      : new Decimal(0);
     let realizedProceeds = new Decimal(0);
     let realizedCostBasis = new Decimal(0);
     let realizedProfit = new Decimal(0);
 
     if (transaction.type === 'buy') {
       const buyCost = fiatAmount.plus(feeAmount);
+      const costBasisPerUnit = buyCost.div(quantity);
       existing.totalBuyCost = existing.totalBuyCost.plus(buyCost);
       existing.costBasis = existing.costBasis.plus(buyCost);
       existing.currentQuantity = existing.currentQuantity.plus(quantity);
+      existing.lots.push({
+        remainingQuantity: quantity,
+        costBasisPerUnit,
+        costBasisTotal: buyCost
+      });
     } else {
-      realizedProceeds = fiatAmount.minus(feeAmount);
-      realizedCostBasis = Decimal.min(quantity, existing.currentQuantity).mul(averageCostBefore);
+      let quantityToSell = quantity;
+      const totalProceeds = fiatAmount.minus(feeAmount);
+
+      if (quantity.gt(existing.currentQuantity)) {
+        throw new Error(
+          `Sell quantity exceeds available ${transaction.assetSymbol} on ${transaction.transactionDate.slice(
+            0,
+            10
+          )}.`
+        );
+      }
+
+      for (const lot of existing.lots) {
+        if (quantityToSell.lte(0)) break;
+        if (lot.remainingQuantity.lte(0)) continue;
+
+        const quantitySold = Decimal.min(quantityToSell, lot.remainingQuantity);
+        const proceedsAmount = totalProceeds.mul(quantitySold).div(quantity);
+        const costBasisAmount = lot.costBasisPerUnit.mul(quantitySold);
+
+        realizedProceeds = realizedProceeds.plus(proceedsAmount);
+        realizedCostBasis = realizedCostBasis.plus(costBasisAmount);
+
+        lot.remainingQuantity = lot.remainingQuantity.minus(quantitySold);
+        lot.costBasisTotal = lot.remainingQuantity.gt(0)
+          ? lot.costBasisPerUnit.mul(lot.remainingQuantity)
+          : new Decimal(0);
+        quantityToSell = quantityToSell.minus(quantitySold);
+      }
+
       realizedProfit = realizedProceeds.minus(realizedCostBasis);
       existing.realizedProfit = existing.realizedProfit.plus(realizedProfit);
-      existing.costBasis = Decimal.max(existing.costBasis.minus(realizedCostBasis), 0);
-      existing.currentQuantity = Decimal.max(existing.currentQuantity.minus(quantity), 0);
+      existing.costBasis = existing.lots.reduce(
+        (total, lot) => total.plus(lot.costBasisTotal),
+        new Decimal(0)
+      );
+      existing.currentQuantity = existing.lots.reduce(
+        (total, lot) => total.plus(lot.remainingQuantity),
+        new Decimal(0)
+      );
       if (existing.currentQuantity.eq(0)) {
         existing.costBasis = new Decimal(0);
       }
@@ -173,8 +219,9 @@ export function calculateHoldings(
     const currentPrice = asDecimal(quote?.price);
     const currentValue = holding.currentQuantity.mul(currentPrice);
     const unrealizedProfit = currentValue.minus(holding.costBasis);
-    const roiPercent = holding.costBasis.gt(0)
-      ? unrealizedProfit.div(holding.costBasis).mul(100)
+    const totalProfit = unrealizedProfit.plus(holding.realizedProfit);
+    const roiPercent = holding.totalBuyCost.gt(0)
+      ? totalProfit.div(holding.totalBuyCost).mul(100)
       : new Decimal(0);
     const priceStatus: HoldingSummary['priceStatus'] =
       !quote || quote.capturedAt === null ? 'missing' : quote.stale ? 'stale' : 'fresh';
@@ -191,6 +238,7 @@ export function calculateHoldings(
       totalBuyCost: toText(holding.totalBuyCost),
       costBasis: toText(holding.costBasis),
       unrealizedProfit: toText(unrealizedProfit),
+      totalProfit: toText(totalProfit),
       roiPercent: toText(roiPercent),
       realizedProfit: toText(holding.realizedProfit),
       realizedProfitApprox: toText(holding.realizedProfit),
@@ -241,6 +289,9 @@ export function calculatePortfolio(
     accumulator.unrealizedProfit = toText(
       new Decimal(accumulator.unrealizedProfit).plus(holding.unrealizedProfit)
     );
+    accumulator.totalProfit = toText(
+      new Decimal(accumulator.totalProfit).plus(holding.totalProfit)
+    );
     accumulator.realizedProfitApprox = toText(
       new Decimal(accumulator.realizedProfitApprox).plus(holding.realizedProfit)
     );
@@ -255,9 +306,9 @@ export function calculatePortfolio(
     (transaction) => 'fxWarning' in transaction && transaction.fxWarning
   ).length;
 
-  const investedAmount = new Decimal(totals.investedAmount);
-  totals.roiPercent = investedAmount.gt(0)
-    ? toText(new Decimal(totals.unrealizedProfit).div(investedAmount).mul(100))
+  const totalBuyCost = new Decimal(totals.totalBuyCost);
+  totals.roiPercent = totalBuyCost.gt(0)
+    ? toText(new Decimal(totals.totalProfit).div(totalBuyCost).mul(100))
     : '0';
 
   const openHoldings = holdings.filter((holding) => new Decimal(holding.quantity).gt(0));

@@ -35,7 +35,7 @@
             <tr>
               <th>Asset</th>
               <th>Quantity</th>
-              <th>Average cost</th>
+              <th>Average open cost</th>
               <th>Current price</th>
               <th>Value</th>
               <th>Unrealized P/L</th>
@@ -63,7 +63,9 @@
                   </a>
                 </td>
                 <td data-label="Quantity">{formatCrypto(holding.quantity)}</td>
-                <td data-label="Average cost">{formatCurrency(holding.averageCost, currency)}</td>
+                <td data-label="Average open cost">
+                  {formatCurrency(holding.averageCost, currency)}
+                </td>
                 <td data-label="Current price">
                   {formatCurrency(holding.currentPrice, currency)}
                   {#if holding.stalePrice}
