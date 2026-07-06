@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { BarChart3, Coins, Home, ListChecks, Settings } from '@lucide/svelte';
+  import { Activity, BarChart3, Coins, Home, ListChecks, Settings } from '@lucide/svelte';
 
   export let data: {
     appName: string;
@@ -12,6 +12,7 @@
 
   const nav = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
+    { href: '/analytics', label: 'Analytics', icon: Activity },
     { href: '/transactions', label: 'Transactions', icon: ListChecks },
     { href: '/assets', label: 'Assets', icon: Coins },
     { href: '/settings', label: 'Settings', icon: Settings }

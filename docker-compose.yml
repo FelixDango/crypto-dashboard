@@ -12,6 +12,7 @@ services:
       BASE_CURRENCY: EUR
       PRICE_PROVIDER: coingecko
       PRICE_CACHE_TTL_SECONDS: '600'
+      ALLOCATION_CONCENTRATION_WARNING_PERCENT: '70'
       PUBLIC_APP_NAME: Krypto Dashboard
       INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:?Set INTERNAL_CRON_SECRET in .env}
     volumes:
@@ -49,8 +50,9 @@ services:
         set -eu
         apk add --no-cache curl
         printf '%s\n' \
-          "5 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://app:3000/api/internal/snapshots/hourly >/proc/1/fd/1 2>/proc/1/fd/2" \
-          "55 23 * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://app:3000/api/internal/snapshots/daily >/proc/1/fd/1 2>/proc/1/fd/2" \
+          "5 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/snapshots/hourly >/proc/1/fd/1 2>/proc/1/fd/2" \
+          "10 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/analytics/health-check >/proc/1/fd/1 2>/proc/1/fd/2" \
+          "55 23 * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/snapshots/daily >/proc/1/fd/1 2>/proc/1/fd/2" \
           > /etc/crontabs/root
         crond -f -l 8
     networks:

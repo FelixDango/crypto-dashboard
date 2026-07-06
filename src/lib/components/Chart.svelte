@@ -25,6 +25,7 @@
       if (disposed) return;
 
       core.use([
+        charts.BarChart,
         charts.LineChart,
         charts.PieChart,
         components.GridComponent,

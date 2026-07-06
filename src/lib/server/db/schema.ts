@@ -4,6 +4,7 @@ type Currency = 'EUR' | 'USD';
 type TransactionType = 'buy' | 'sell';
 type PortfolioSnapshotType = 'hourly' | 'daily';
 type PortfolioSnapshotPriceStatus = 'fresh' | 'stale' | 'failed';
+type PriceUpdateEventStatus = 'success' | 'stale_fallback' | 'failed';
 
 export const assets = sqliteTable(
   'assets',
@@ -117,6 +118,32 @@ export const portfolioSnapshots = sqliteTable(
   })
 );
 
+export const priceUpdateEvents = sqliteTable(
+  'price_update_events',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id').references(() => assets.id, { onDelete: 'set null' }),
+    provider: text('provider').notNull(),
+    fiatCurrency: text('fiat_currency').$type<Currency>().notNull(),
+    status: text('status').$type<PriceUpdateEventStatus>().notNull(),
+    price: text('price'),
+    errorMessage: text('error_message'),
+    checkedAt: text('checked_at').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => ({
+    assetCurrencyCheckedIndex: index('price_update_events_asset_currency_checked_idx').on(
+      table.assetId,
+      table.fiatCurrency,
+      table.checkedAt
+    ),
+    statusCheckedIndex: index('price_update_events_status_checked_idx').on(
+      table.status,
+      table.checkedAt
+    )
+  })
+);
+
 export const assetLots = sqliteTable(
   'asset_lots',
   {
@@ -205,6 +232,8 @@ export type TransactionRow = typeof transactions.$inferSelect;
 export type NewTransactionRow = typeof transactions.$inferInsert;
 export type PriceSnapshotRow = typeof priceSnapshots.$inferSelect;
 export type PortfolioSnapshotRow = typeof portfolioSnapshots.$inferSelect;
+export type PriceUpdateEventRow = typeof priceUpdateEvents.$inferSelect;
+export type NewPriceUpdateEventRow = typeof priceUpdateEvents.$inferInsert;
 export type AssetLotRow = typeof assetLots.$inferSelect;
 export type NewAssetLotRow = typeof assetLots.$inferInsert;
 export type LotDisposalRow = typeof lotDisposals.$inferSelect;

@@ -44,6 +44,17 @@ export function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value));
+}
+
 export function signedClass(value: string | number): 'positive' | 'negative' | 'neutral' {
   const number = asNumber(value);
   if (number > 0) return 'positive';

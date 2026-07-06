@@ -47,16 +47,18 @@ The app container exposes port `3000` only to the `npm_proxy` Docker network. It
 public host port by default. `docker compose up -d` starts both `krypto-dashboard` and
 `snapshot-cron`.
 
-## Automatic Snapshots
+## Automatic Snapshots And Health
 
 Portfolio value charts use rows from the `portfolio_snapshots` SQLite table. The app creates real
 snapshots only; it does not invent historical values. On the first dashboard visit, the server
 creates an initial hourly snapshot if none exist yet.
 
-The `snapshot-cron` sidecar runs Alpine `crond` and calls the app by Docker DNS alias:
+The `snapshot-cron` sidecar runs Alpine `crond` and calls the app by internal Docker service name:
 
-- Hourly: minute 5, `POST http://app:3000/api/internal/snapshots/hourly`
-- Daily: 23:55, `POST http://app:3000/api/internal/snapshots/daily`
+- Hourly snapshot: minute 5, `POST http://krypto-dashboard:3000/api/internal/snapshots/hourly`
+- Analytics health check: minute 10,
+  `POST http://krypto-dashboard:3000/api/internal/analytics/health-check`
+- Daily snapshot: 23:55, `POST http://krypto-dashboard:3000/api/internal/snapshots/daily`
 
 Both calls require:
 
@@ -71,8 +73,16 @@ should expose only the normal app route with its Access List / Basic Auth in fro
 Manual verification from inside the Compose network:
 
 ```bash
-docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://app:3000/api/internal/snapshots/hourly'
-docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://app:3000/api/internal/snapshots/daily'
+docker compose logs snapshot-cron --since 24h
+```
+
+```bash
+docker compose exec snapshot-cron sh -c 'curl -i -X POST http://krypto-dashboard:3000/api/internal/analytics/health-check -H "Authorization: Bearer $INTERNAL_CRON_SECRET"'
+```
+
+```bash
+docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/snapshots/hourly'
+docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/snapshots/daily'
 ```
 
 For local dev on the Vite server:
@@ -90,11 +100,130 @@ docker compose up -d --scale snapshot-cron=0
 Chart ranges map to snapshot types as follows:
 
 - `24h`: hourly snapshots
-- `7d`: hourly snapshots when at least 24 hourly points exist, otherwise daily snapshots if available
+- `7d`: hourly snapshots when hourly history is complete, otherwise daily snapshots if available
 - `30d`, `90d`, `1y`, `all`: daily snapshots
 
 Duplicate prevention is enforced by a unique SQLite index over snapshot type, base currency, and
 normalized UTC bucket timestamp. Repeated calls for the same hour or day return `already_exists`.
+
+## Analytics
+
+Open `/analytics` for performance cards, portfolio value and drawdown charts, monthly contribution
+and P/L charts, allocation drift, asset performance, and data health. The page uses these server
+endpoints:
+
+- `GET /api/analytics/summary`
+- `GET /api/analytics/performance?range=24h|7d|30d|90d|1y|all`
+- `GET /api/analytics/drawdown?range=24h|7d|30d|90d|1y|all`
+- `GET /api/analytics/monthly`
+- `GET /api/analytics/allocation`
+- `GET /api/analytics/health`
+
+Performance history comes from `portfolio_snapshots`. Current accounting values still come from the
+manual transaction ledger plus cached public market prices.
+
+Key labels:
+
+- Portfolio value change = raw change between the first and last snapshot in the selected range.
+- Cash-flow adjusted P/L = end portfolio value - start portfolio value - net contribution.
+- Accounting P/L = realized P/L + unrealized P/L from the current portfolio accounting view.
+
+ATH and drawdown:
+
+```text
+drawdown_percent = (current_value - running_ath) / running_ath * 100
+```
+
+Drawdown values are zero or negative. Max drawdown is the lowest drawdown in the selected series.
+
+Monthly contribution:
+
+```text
+monthly_buy_cost = sum(buy fiat_amount + buy fees)
+monthly_sell_proceeds = sum(sell fiat_amount - sell fees)
+net_contribution = monthly_buy_cost - monthly_sell_proceeds
+```
+
+Monthly P/L uses daily snapshots:
+
+```text
+monthly_pnl = end_portfolio_value - start_portfolio_value - net_contribution
+```
+
+If a month is missing start/end daily snapshots, it is marked incomplete and omitted from the P/L
+chart.
+
+Allocation concentration uses the largest current asset weight:
+
+```text
+top_asset_weight_percent = largest_asset_value / total_portfolio_value * 100
+```
+
+Set `ALLOCATION_CONCENTRATION_WARNING_PERCENT=70` to change the warning threshold.
+
+### Data Health Rules
+
+`/analytics` shows `Healthy`, `Warning`, or `Broken` for snapshots and prices.
+
+- Hourly snapshots are healthy within 2 hours, warning between 2 and 6 hours, broken after 6 hours.
+- Daily snapshots are healthy within 36 hours, warning between 36 and 72 hours, broken after
+  72 hours.
+- Hourly history has a gap when adjacent hourly snapshots are more than 90 minutes apart.
+- Daily history has a gap when adjacent daily snapshots are more than 36 hours apart.
+- Prices are fresh within 30 minutes, stale between 30 minutes and 24 hours, missing after 24 hours
+  or when no usable price exists.
+- Failed price fetch attempts are stored in `price_update_events` and shown in price health.
+
+Price event retention:
+
+- Successful price events are kept for 30 days.
+- Failed and stale-fallback price events are kept for 90 days.
+- The internal analytics health check runs cleanup.
+
+SQLite verification queries for `/data/krypto.db`:
+
+```sql
+select snapshot_type, bucket_at, captured_at, price_status
+from portfolio_snapshots
+where snapshot_type = 'hourly'
+order by bucket_at desc
+limit 1;
+```
+
+```sql
+select snapshot_type, bucket_at, captured_at, price_status
+from portfolio_snapshots
+where snapshot_type = 'daily'
+order by bucket_at desc
+limit 1;
+```
+
+```sql
+select asset_id, provider, fiat_currency, status, error_message, checked_at
+from price_update_events
+where status = 'failed'
+order by checked_at desc
+limit 20;
+```
+
+Hourly gap inspection:
+
+```sql
+with ordered as (
+  select
+    bucket_at,
+    lag(bucket_at) over (order by bucket_at) as previous_bucket
+  from portfolio_snapshots
+  where snapshot_type = 'hourly'
+)
+select
+  previous_bucket,
+  bucket_at,
+  round((julianday(bucket_at) - julianday(previous_bucket)) * 24, 2) as gap_hours
+from ordered
+where previous_bucket is not null
+  and (julianday(bucket_at) - julianday(previous_bucket)) * 24 > 1.5;
+```
 
 ## GitHub Actions CI/CD
 

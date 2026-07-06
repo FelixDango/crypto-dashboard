@@ -1,9 +1,11 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { AssetRecord, Currency, PriceQuote } from '$lib/types';
+import type { ProviderPrice } from './provider';
 import { getPriceCacheTtlSeconds } from '$lib/env';
 import { db } from '$lib/server/db/client';
 import { priceSnapshots } from '$lib/server/db/schema';
+import { recordPriceUpdateEvent } from './events';
 import { getPriceProvider } from './providers';
 
 type SnapshotRow = typeof priceSnapshots.$inferSelect;
@@ -91,6 +93,7 @@ export async function refreshCurrentPricesForAssets(
 
   const provider = getPriceProvider(providerId);
   try {
+    const checkedAt = new Date().toISOString();
     const fetched = await provider.getCurrentPrices(
       needsFetch.map((asset) => asset.providerCoinId),
       currency
@@ -103,6 +106,15 @@ export async function refreshCurrentPricesForAssets(
       if (!price) {
         const stale = staleSnapshots.get(asset.id);
         if (stale) {
+          recordPriceUpdateEvent({
+            assetId: asset.id,
+            provider: provider.id,
+            fiatCurrency: currency,
+            status: 'stale_fallback',
+            price: stale.price,
+            errorMessage: `${asset.symbol} price was missing from the latest provider response.`,
+            checkedAt
+          });
           fetchedQuotes.push(
             mapSnapshot(
               stale,
@@ -111,6 +123,14 @@ export async function refreshCurrentPricesForAssets(
             )
           );
         } else {
+          recordPriceUpdateEvent({
+            assetId: asset.id,
+            provider: provider.id,
+            fiatCurrency: currency,
+            status: 'failed',
+            errorMessage: `${asset.symbol} price was missing from the latest provider response.`,
+            checkedAt
+          });
           fetchedQuotes.push({
             assetId: asset.id,
             price: '0',
@@ -136,6 +156,15 @@ export async function refreshCurrentPricesForAssets(
         })
         .run();
 
+      recordPriceUpdateEvent({
+        assetId: asset.id,
+        provider: provider.id,
+        fiatCurrency: currency,
+        status: 'success',
+        price: price.price,
+        checkedAt
+      });
+
       fetchedQuotes.push({
         assetId: asset.id,
         price: price.price,
@@ -149,9 +178,19 @@ export async function refreshCurrentPricesForAssets(
     return [...freshQuotes, ...fetchedQuotes];
   } catch (error) {
     const warning = error instanceof Error ? error.message : 'Price provider failed.';
+    const checkedAt = new Date().toISOString();
     const fallbackQuotes = needsFetch.map((asset) => {
       const stale = staleSnapshots.get(asset.id);
       if (stale) {
+        recordPriceUpdateEvent({
+          assetId: asset.id,
+          provider: provider.id,
+          fiatCurrency: currency,
+          status: 'stale_fallback',
+          price: stale.price,
+          errorMessage: warning,
+          checkedAt
+        });
         return mapSnapshot(
           stale,
           true,
@@ -159,6 +198,14 @@ export async function refreshCurrentPricesForAssets(
         );
       }
 
+      recordPriceUpdateEvent({
+        assetId: asset.id,
+        provider: provider.id,
+        fiatCurrency: currency,
+        status: 'failed',
+        errorMessage: warning,
+        checkedAt
+      });
       return {
         assetId: asset.id,
         price: '0',
@@ -208,7 +255,21 @@ export async function getHistoricalPriceCached(
   if (cached) return mapSnapshot(cached, false);
 
   const provider = getPriceProvider(providerId);
-  const price = await provider.getHistoricalPrice(asset.providerCoinId, capturedAt, currency);
+  const checkedAt = new Date().toISOString();
+  let price: ProviderPrice;
+  try {
+    price = await provider.getHistoricalPrice(asset.providerCoinId, capturedAt, currency);
+  } catch (error) {
+    recordPriceUpdateEvent({
+      assetId: asset.id,
+      provider: provider.id,
+      fiatCurrency: currency,
+      status: 'failed',
+      errorMessage: error instanceof Error ? error.message : 'Historical price fetch failed.',
+      checkedAt
+    });
+    throw error;
+  }
   db.insert(priceSnapshots)
     .values({
       id: randomUUID(),
@@ -219,6 +280,15 @@ export async function getHistoricalPriceCached(
       capturedAt
     })
     .run();
+
+  recordPriceUpdateEvent({
+    assetId: asset.id,
+    provider: provider.id,
+    fiatCurrency: currency,
+    status: 'success',
+    price: price.price,
+    checkedAt
+  });
 
   return {
     assetId: asset.id,
