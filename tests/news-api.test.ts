@@ -123,10 +123,43 @@ describe('news API', () => {
     const { GET } = await import('../src/routes/api/news/health/+server');
 
     const response = GET();
-    const payload = (await response.json()) as { enabledSources: number; status: string };
+    const payload = (await response.json()) as {
+      enabledSources: number;
+      pendingSources: number;
+      status: string;
+      sources: Array<{ status: string }>;
+    };
 
     expect(response.status).toBe(200);
     expect(payload.enabledSources).toBeGreaterThan(0);
+    expect(payload.pendingSources).toBe(payload.enabledSources);
+    expect(payload.sources.every((source) => source.status === 'pending')).toBe(true);
+    expect(payload.status).toBe('warning');
+  });
+
+  it('marks attempted total news failure as broken', async () => {
+    const { db } = await import('../src/lib/server/db/client');
+    const { newsSources } = await import('../src/lib/server/db/schema');
+    db.update(newsSources)
+      .set({
+        lastFetchedAt: '2026-07-06T12:00:00.000Z',
+        lastError: 'fetch failed',
+        updatedAt: '2026-07-06T12:00:00.000Z'
+      })
+      .run();
+    const { GET } = await import('../src/routes/api/news/health/+server');
+
+    const response = GET();
+    const payload = (await response.json()) as {
+      enabledSources: number;
+      failedSources: number;
+      status: string;
+      sources: Array<{ status: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.failedSources).toBe(payload.enabledSources);
+    expect(payload.sources.every((source) => source.status === 'broken')).toBe(true);
     expect(payload.status).toBe('broken');
   });
 

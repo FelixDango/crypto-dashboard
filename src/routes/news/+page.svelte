@@ -37,6 +37,7 @@
   function statusClass(status: string): string {
     if (status === 'healthy') return 'healthy';
     if (status === 'warning') return 'warning';
+    if (status === 'pending') return 'pending';
     if (status === 'disabled') return 'disabled';
     return 'broken';
   }
@@ -427,6 +428,10 @@
     color: var(--amber);
   }
 
+  .pending {
+    color: var(--blue);
+  }
+
   .broken {
     color: var(--negative);
   }
@@ -443,6 +448,11 @@
   .status.warning {
     background: rgba(245, 158, 11, 0.1);
     border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  .status.pending {
+    background: rgba(96, 165, 250, 0.1);
+    border-color: rgba(96, 165, 250, 0.3);
   }
 
   .status.broken {

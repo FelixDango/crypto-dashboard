@@ -13,7 +13,7 @@ export type NewsSourceHealth = {
   lastFetchedAt: string | null;
   lastSuccessAt: string | null;
   lastError: string | null;
-  status: AnalyticsHealthStatus | 'disabled';
+  status: AnalyticsHealthStatus | 'pending' | 'disabled';
 };
 
 export type NewsHealth = {
@@ -21,6 +21,7 @@ export type NewsHealth = {
   checkedAt: string;
   latestSuccessfulFetchAt: string | null;
   enabledSources: number;
+  pendingSources: number;
   failedSources: number;
   articlesFetchedLast24h: number;
   matchedArticlesLast24h: number;
@@ -38,12 +39,14 @@ function ageHours(value: string, now: Date): number {
 function sourceStatus(
   source: {
     isEnabled: boolean;
+    lastFetchedAt: string | null;
     lastSuccessAt: string | null;
     lastError: string | null;
   },
   now: Date
 ): NewsSourceHealth['status'] {
   if (!source.isEnabled) return 'disabled';
+  if (!source.lastFetchedAt && !source.lastSuccessAt && !source.lastError) return 'pending';
   if (!source.lastSuccessAt) return 'broken';
 
   const age = ageHours(source.lastSuccessAt, now);
@@ -113,8 +116,10 @@ export function getNewsHealth(options: { now?: Date } = {}): NewsHealth {
       status: sourceStatus(source, now)
     }));
   const enabled = sources.filter((source) => source.isEnabled);
+  const pendingSources = enabled.filter((source) => source.status === 'pending').length;
   const failedSources = enabled.filter((source) => source.status === 'broken').length;
   const warningSources = enabled.filter((source) => source.status === 'warning').length;
+  const attemptedSources = enabled.length - pendingSources;
   const latestSuccess = latestSuccessfulFetchAt();
   const latestSuccessAge = latestSuccess ? ageHours(latestSuccess, now) : null;
   const articlesFetchedLast24h = countArticlesFetchedSince(since24h);
@@ -122,7 +127,16 @@ export function getNewsHealth(options: { now?: Date } = {}): NewsHealth {
   const messages: string[] = [];
 
   if (enabled.length === 0) messages.push('No enabled news sources.');
-  if (!latestSuccess) messages.push('No successful news fetch has completed yet.');
+  if (!latestSuccess && attemptedSources === 0) {
+    messages.push('News fetch has not run yet.');
+  } else if (!latestSuccess) {
+    messages.push('No successful news fetch has completed yet.');
+  }
+  if (pendingSources > 0) {
+    messages.push(
+      `${pendingSources} enabled news source${pendingSources === 1 ? '' : 's'} waiting for first fetch.`
+    );
+  }
   if (latestSuccessAge !== null && latestSuccessAge > 24) {
     messages.push(`Latest successful news fetch is ${Math.round(latestSuccessAge)} hours old.`);
   }
@@ -141,12 +155,14 @@ export function getNewsHealth(options: { now?: Date } = {}): NewsHealth {
   let status: AnalyticsHealthStatus = 'healthy';
   if (
     enabled.length === 0 ||
-    !latestSuccess ||
+    (!latestSuccess && attemptedSources > 0) ||
     (latestSuccessAge !== null && latestSuccessAge > 72) ||
     (enabled.length > 0 && failedSources === enabled.length)
   ) {
     status = 'broken';
   } else if (
+    (!latestSuccess && attemptedSources === 0) ||
+    pendingSources > 0 ||
     (latestSuccessAge !== null && latestSuccessAge > 24) ||
     failedSources > 0 ||
     warningSources > 0 ||
@@ -160,6 +176,7 @@ export function getNewsHealth(options: { now?: Date } = {}): NewsHealth {
     checkedAt,
     latestSuccessfulFetchAt: latestSuccess,
     enabledSources: enabled.length,
+    pendingSources,
     failedSources,
     articlesFetchedLast24h,
     matchedArticlesLast24h,
