@@ -10,6 +10,7 @@
     Home,
     Lightbulb,
     ListChecks,
+    Newspaper,
     Settings,
     Shield
   } from '@lucide/svelte';
@@ -33,6 +34,7 @@
     { href: '/dashboard', label: 'Dashboard', icon: Home },
     { href: '/analytics', label: 'Analytics', icon: Activity },
     { href: '/insights', label: 'Insights', icon: Lightbulb },
+    { href: '/news', label: 'News', icon: Newspaper },
     { href: '/transactions', label: 'Transactions', icon: ListChecks },
     { href: '/assets', label: 'Assets', icon: Coins },
     { href: '/settings', label: 'Settings', icon: Settings }

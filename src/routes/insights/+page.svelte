@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { AlertTriangle, CheckCircle2, CircleAlert, Info, ShieldCheck } from '@lucide/svelte';
+  import {
+    AlertTriangle,
+    CheckCircle2,
+    CircleAlert,
+    ExternalLink,
+    Info,
+    Newspaper,
+    ShieldCheck
+  } from '@lucide/svelte';
   import CycleCard from '$lib/components/CycleCard.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import { formatPercent, signedClass } from '$lib/format';
@@ -7,6 +15,8 @@
   import type { DataConfidence } from '$lib/server/insights/data-confidence';
   import type { ExplainRange, ExplainResult } from '$lib/server/insights/explain';
   import type { CycleProgress, CycleWindow } from '$lib/server/insights/market-cycle';
+  import type { PortfolioNewsContext } from '$lib/server/news/context';
+  import type { NewsHealth } from '$lib/server/news/health';
 
   export let data: {
     range: ExplainRange;
@@ -20,6 +30,8 @@
       risk: ExplainResult;
       cycle: ExplainResult;
     };
+    newsContext: PortfolioNewsContext;
+    newsHealth: NewsHealth;
     cycle: CycleProgress | null;
     cycleWindows: CycleWindow[];
   };
@@ -36,6 +48,11 @@
 
   function statusLabel(status: string): string {
     return status.slice(0, 1).toUpperCase() + status.slice(1);
+  }
+
+  function signedPercent(value: number | null): string {
+    if (value === null) return '-';
+    return `${value > 0 ? '+' : ''}${formatPercent(value)}`;
   }
 </script>
 
@@ -104,6 +121,100 @@
           </article>
         {/each}
       </div>
+    </section>
+  </div>
+
+  <div class="grid two-column">
+    <section class="card insight-card news-context-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Possible news context</span>
+          <h2>Related headlines</h2>
+        </div>
+        <Newspaper size={20} />
+      </div>
+      {#if data.newsContext.assets.length === 0}
+        <p class="muted">No recent related headlines matched held assets for {data.range}.</p>
+      {:else}
+        <div class="news-context-list">
+          {#each data.newsContext.assets.slice(0, 4) as asset}
+            <article>
+              <div class="news-asset-head">
+                <strong>{asset.symbol}</strong>
+                <span class={signedClass(asset.priceChangePercent ?? 0)}>
+                  {signedPercent(asset.priceChangePercent)}
+                </span>
+              </div>
+              <p>{asset.contextSummary}</p>
+              {#if asset.themes.length > 0}
+                <div class="theme-row">
+                  {#each asset.themes.slice(0, 4) as theme}
+                    <span>{theme}</span>
+                  {/each}
+                </div>
+              {/if}
+              <ul>
+                {#each asset.articles.slice(0, 5) as article}
+                  <li>
+                    <a href={article.url} target="_blank" rel="noreferrer">
+                      {article.title}
+                      <ExternalLink size={14} />
+                    </a>
+                    <small>{article.source}</small>
+                  </li>
+                {/each}
+              </ul>
+            </article>
+          {/each}
+        </div>
+      {/if}
+      <p class="muted small-note">{data.newsContext.disclaimer}</p>
+    </section>
+
+    <section class="card insight-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">News health</span>
+          <h2>Optional context feed</h2>
+        </div>
+        <span class="status {statusClass(data.newsHealth.status)}">
+          {#if data.newsHealth.status === 'healthy'}
+            <CheckCircle2 size={16} />
+          {:else if data.newsHealth.status === 'warning'}
+            <CircleAlert size={16} />
+          {:else}
+            <AlertTriangle size={16} />
+          {/if}
+          {statusLabel(data.newsHealth.status)}
+        </span>
+      </div>
+      <div class="safe-grid news-health-grid">
+        <article>
+          <span>Sources</span>
+          <strong>{data.newsHealth.enabledSources}</strong>
+        </article>
+        <article>
+          <span>Failed</span>
+          <strong>{data.newsHealth.failedSources}</strong>
+        </article>
+        <article>
+          <span>Fetched 24h</span>
+          <strong>{data.newsHealth.articlesFetchedLast24h}</strong>
+        </article>
+        <article>
+          <span>Matched 24h</span>
+          <strong>{data.newsHealth.matchedArticlesLast24h}</strong>
+        </article>
+      </div>
+      {#if data.newsHealth.messages.length > 0}
+        <ul class="issue-list">
+          {#each data.newsHealth.messages.slice(0, 4) as message}
+            <li>{message}</li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="muted">No news feed issues detected.</p>
+      {/if}
     </section>
   </div>
 
@@ -381,6 +492,80 @@
     align-items: center;
     display: flex;
     gap: 0.55rem;
+  }
+
+  .news-context-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .news-context-list article {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.8rem;
+  }
+
+  .news-asset-head,
+  .theme-row,
+  .news-context-list a {
+    align-items: center;
+    display: flex;
+  }
+
+  .news-asset-head {
+    justify-content: space-between;
+  }
+
+  .news-context-list p {
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  .theme-row {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .theme-row span {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+    padding: 0.16rem 0.48rem;
+  }
+
+  .news-context-list ul {
+    display: grid;
+    gap: 0.45rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .news-context-list li {
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  .news-context-list a {
+    gap: 0.3rem;
+    line-height: 1.35;
+  }
+
+  .news-context-list a:hover {
+    color: var(--accent);
+  }
+
+  .news-context-list small {
+    color: var(--muted);
+  }
+
+  .news-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   @media (max-width: 980px) {

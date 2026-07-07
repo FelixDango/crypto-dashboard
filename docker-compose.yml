@@ -52,6 +52,7 @@ services:
         printf '%s\n' \
           "5 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/snapshots/hourly >/proc/1/fd/1 2>/proc/1/fd/2" \
           "10 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/analytics/health-check >/proc/1/fd/1 2>/proc/1/fd/2" \
+          "20 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/news/fetch >/proc/1/fd/1 2>/proc/1/fd/2" \
           "55 23 * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/snapshots/daily >/proc/1/fd/1 2>/proc/1/fd/2" \
           > /etc/crontabs/root
         crond -f -l 8

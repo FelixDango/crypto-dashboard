@@ -2,7 +2,8 @@
 
 A private, self-hosted crypto portfolio tracker for manual transactions. It uses SQLite, SvelteKit,
 Drizzle ORM, and public CoinGecko price data. It does not connect to private exchange APIs and has
-no trading, withdrawal, or registration features.
+no trading, withdrawal, or registration features. Public RSS news is optional context only and does
+not prove why prices moved.
 
 ## Local Setup
 
@@ -58,9 +59,10 @@ The `snapshot-cron` sidecar runs Alpine `crond` and calls the app by internal Do
 - Hourly snapshot: minute 5, `POST http://krypto-dashboard:3000/api/internal/snapshots/hourly`
 - Analytics health check: minute 10,
   `POST http://krypto-dashboard:3000/api/internal/analytics/health-check`
+- News fetch: minute 20, `POST http://krypto-dashboard:3000/api/internal/news/fetch`
 - Daily snapshot: 23:55, `POST http://krypto-dashboard:3000/api/internal/snapshots/daily`
 
-Both calls require:
+These calls require:
 
 ```text
 Authorization: Bearer ${INTERNAL_CRON_SECRET}
@@ -82,6 +84,7 @@ docker compose exec snapshot-cron sh -c 'curl -i -X POST http://krypto-dashboard
 
 ```bash
 docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/snapshots/hourly'
+docker compose exec snapshot-cron sh -c 'curl -i -X POST http://krypto-dashboard:3000/api/internal/news/fetch -H "Authorization: Bearer $INTERNAL_CRON_SECRET"'
 docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/snapshots/daily'
 ```
 
@@ -105,6 +108,62 @@ Chart ranges map to snapshot types as follows:
 
 Duplicate prevention is enforced by a unique SQLite index over snapshot type, base currency, and
 normalized UTC bucket timestamp. Repeated calls for the same hour or day return `already_exists`.
+
+## V6 News Context Engine
+
+Open `/news` for public crypto headlines, source status, filters, and asset-context grouping.
+`/insights` and `/assets/[asset]` also show compact “Possible news context” sections.
+
+What it does:
+
+- Fetches enabled public RSS sources server-side.
+- Stores articles in SQLite and deduplicates by URL or source external ID.
+- Matches headlines to currently held assets with deterministic symbol/name/alias rules.
+- Extracts simple keyword themes such as `ETF`, `macro`, `regulation`, `security/exploit`, and
+  `exchange`.
+- Assigns a conservative `Context label`: `positive`, `neutral`, `negative`, `mixed`, or `unknown`.
+- Shows the disclaimer: “This is possible news context only and does not prove causation.”
+
+What it does not do:
+
+- It does not present headlines as the reason for a price movement.
+- It does not provide financial advice, tax advice, trading, withdrawals, or exchange connections.
+- It does not require paid APIs, API keys, OAuth, AI, PostgreSQL, or Kubernetes.
+- It does not block dashboard, accounting, analytics, or snapshots if a feed is unavailable.
+
+Default RSS rows are seeded in `news_sources` for CoinDesk, Cointelegraph, Decrypt, and Bitcoin
+Magazine. To add or edit sources, update `news_sources` in SQLite; keep `type = 'rss'`, set
+`is_enabled = 1`, and choose a `fetch_interval_minutes` value. Official project blogs can be added
+the same way.
+
+News endpoints:
+
+- `GET /api/news/articles?assetId=&sourceId=&theme=&range=24h|7d|30d`
+- `GET /api/news/context?range=24h|7d|30d`
+- `GET /api/news/context/[assetId]?range=24h|7d|30d`
+- `GET /api/news/health`
+- `POST /api/internal/news/fetch` with `Authorization: Bearer ${INTERNAL_CRON_SECRET}`
+
+Manual news fetch from the cron sidecar:
+
+```bash
+docker compose exec snapshot-cron sh -c 'curl -i -X POST http://krypto-dashboard:3000/api/internal/news/fetch -H "Authorization: Bearer $INTERNAL_CRON_SECRET"'
+```
+
+Logs and health checks:
+
+```bash
+docker compose logs snapshot-cron --since 24h
+docker compose logs krypto-dashboard --since 24h | grep -i news
+```
+
+SQLite checks:
+
+```sql
+select count(*) from news_articles;
+select count(*) from news_article_asset_matches;
+select status, count(*) from news_fetch_events group by status;
+```
 
 ## Analytics
 
@@ -236,8 +295,7 @@ transactions, sell quantities, and whether open accounting lots match transactio
 ### Explain Mode
 
 Explain mode returns structured JSON with `summary`, `bullets`, `warnings`, and `drivers`. It is
-deterministic and limited to app data. It avoids language such as "you should buy" or "you should
-sell".
+deterministic and limited to app data. It avoids prescriptive trade recommendations.
 
 Verification:
 
@@ -485,5 +543,4 @@ authenticated proxy URL.
 - No exchange sync, private exchange APIs, trading, withdrawals, or real-time WebSocket pricing.
 - Portfolio history begins when real automatic snapshots are created; past values are not backfilled.
 - Coin search and price refresh depend on CoinGecko availability and rate limits.
-- Possible news context is left as a V6 feature. If added later, it should show public sources and
-  timestamps, remain optional, and never claim that a headline caused a price move.
+- News context depends on public RSS feed availability and remains optional context, not causality.

@@ -1,10 +1,14 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 type Currency = 'EUR' | 'USD';
 type TransactionType = 'buy' | 'sell';
 type PortfolioSnapshotType = 'hourly' | 'daily';
 type PortfolioSnapshotPriceStatus = 'fresh' | 'stale' | 'failed';
 type PriceUpdateEventStatus = 'success' | 'stale_fallback' | 'failed';
+type NewsSourceType = 'rss';
+type NewsSentimentLabel = 'positive' | 'neutral' | 'negative' | 'mixed' | 'unknown';
+type NewsAssetMatchType = 'symbol' | 'name' | 'alias' | 'manual';
+type NewsFetchEventStatus = 'success' | 'partial' | 'failed';
 
 export const assets = sqliteTable(
   'assets',
@@ -241,6 +245,115 @@ export const marketCycleSettings = sqliteTable('market_cycle_settings', {
   updatedAt: text('updated_at').notNull()
 });
 
+export const newsSources = sqliteTable(
+  'news_sources',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    type: text('type').$type<NewsSourceType>().notNull(),
+    url: text('url').notNull(),
+    isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull(),
+    fetchIntervalMinutes: integer('fetch_interval_minutes').notNull(),
+    lastFetchedAt: text('last_fetched_at'),
+    lastSuccessAt: text('last_success_at'),
+    lastError: text('last_error'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => ({
+    enabledIndex: index('news_sources_enabled_idx').on(table.isEnabled),
+    fetchDueIndex: index('news_sources_fetch_due_idx').on(table.isEnabled, table.lastFetchedAt)
+  })
+);
+
+export const newsArticles = sqliteTable(
+  'news_articles',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => newsSources.id, { onDelete: 'cascade' }),
+    externalId: text('external_id'),
+    url: text('url').notNull(),
+    canonicalUrl: text('canonical_url'),
+    title: text('title').notNull(),
+    summary: text('summary'),
+    publishedAt: text('published_at'),
+    fetchedAt: text('fetched_at').notNull(),
+    language: text('language'),
+    rawAssetMentionsJson: text('raw_asset_mentions_json'),
+    rawThemesJson: text('raw_themes_json'),
+    sentimentLabel: text('sentiment_label').$type<NewsSentimentLabel>().notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => ({
+    urlUnique: uniqueIndex('news_articles_url_unique').on(table.url),
+    sourceExternalUnique: uniqueIndex('news_articles_source_external_unique').on(
+      table.sourceId,
+      table.externalId
+    ),
+    sourcePublishedIndex: index('news_articles_source_published_idx').on(
+      table.sourceId,
+      table.publishedAt
+    ),
+    fetchedIndex: index('news_articles_fetched_idx').on(table.fetchedAt)
+  })
+);
+
+export const newsArticleAssetMatches = sqliteTable(
+  'news_article_asset_matches',
+  {
+    id: text('id').primaryKey(),
+    articleId: text('article_id')
+      .notNull()
+      .references(() => newsArticles.id, { onDelete: 'cascade' }),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    matchType: text('match_type').$type<NewsAssetMatchType>().notNull(),
+    confidence: real('confidence').notNull(),
+    matchedTermsJson: text('matched_terms_json').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => ({
+    articleAssetUnique: uniqueIndex('news_article_asset_matches_article_asset_unique').on(
+      table.articleId,
+      table.assetId
+    ),
+    assetConfidenceIndex: index('news_article_asset_matches_asset_confidence_idx').on(
+      table.assetId,
+      table.confidence
+    )
+  })
+);
+
+export const newsFetchEvents = sqliteTable(
+  'news_fetch_events',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id').references(() => newsSources.id, { onDelete: 'set null' }),
+    status: text('status').$type<NewsFetchEventStatus>().notNull(),
+    articlesFound: integer('articles_found').notNull(),
+    articlesInserted: integer('articles_inserted').notNull(),
+    articlesUpdated: integer('articles_updated').notNull(),
+    errorMessage: text('error_message'),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at').notNull(),
+    createdAt: text('created_at').notNull()
+  },
+  (table) => ({
+    statusCreatedIndex: index('news_fetch_events_status_created_idx').on(
+      table.status,
+      table.createdAt
+    ),
+    sourceCreatedIndex: index('news_fetch_events_source_created_idx').on(
+      table.sourceId,
+      table.createdAt
+    )
+  })
+);
+
 export type AssetRow = typeof assets.$inferSelect;
 export type NewAssetRow = typeof assets.$inferInsert;
 export type TransactionRow = typeof transactions.$inferSelect;
@@ -258,3 +371,11 @@ export type ImportBatchRow = typeof importBatches.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;
 export type MarketCycleSettingsRow = typeof marketCycleSettings.$inferSelect;
 export type NewMarketCycleSettingsRow = typeof marketCycleSettings.$inferInsert;
+export type NewsSourceRow = typeof newsSources.$inferSelect;
+export type NewNewsSourceRow = typeof newsSources.$inferInsert;
+export type NewsArticleRow = typeof newsArticles.$inferSelect;
+export type NewNewsArticleRow = typeof newsArticles.$inferInsert;
+export type NewsArticleAssetMatchRow = typeof newsArticleAssetMatches.$inferSelect;
+export type NewNewsArticleAssetMatchRow = typeof newsArticleAssetMatches.$inferInsert;
+export type NewsFetchEventRow = typeof newsFetchEvents.$inferSelect;
+export type NewNewsFetchEventRow = typeof newsFetchEvents.$inferInsert;

@@ -25,6 +25,10 @@ describe('database migrations', () => {
     expect(tables).toContain('fx_rates');
     expect(tables).toContain('import_batches');
     expect(tables).toContain('settings');
+    expect(tables).toContain('news_sources');
+    expect(tables).toContain('news_articles');
+    expect(tables).toContain('news_article_asset_matches');
+    expect(tables).toContain('news_fetch_events');
 
     const transactionColumns = sqlite
       .prepare('PRAGMA table_info(transactions)')
@@ -52,5 +56,12 @@ describe('database migrations', () => {
       .map((row) => (row as { name: string }).name);
     expect(eventColumns).toContain('status');
     expect(eventColumns).toContain('checked_at');
+
+    const newsArticleColumns = sqlite
+      .prepare('PRAGMA table_info(news_articles)')
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(newsArticleColumns).toContain('sentiment_label');
+    expect(newsArticleColumns).toContain('raw_themes_json');
   });
 });

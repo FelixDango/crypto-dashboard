@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowLeft } from '@lucide/svelte';
+  import { ArrowLeft, ExternalLink, Newspaper } from '@lucide/svelte';
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import {
@@ -10,6 +10,7 @@
     signedClass
   } from '$lib/format';
   import type { HoldingSummary } from '$lib/types';
+  import type { AssetNewsContext, NewsRange } from '$lib/server/news/context';
 
   type OpenLot = {
     id: string;
@@ -40,10 +41,23 @@
     openLots: OpenLot[];
     disposals: Disposal[];
     baseCurrency: 'EUR' | 'USD';
+    newsRange: NewsRange;
+    newsRanges: { value: NewsRange; label: string }[];
+    newsContext: AssetNewsContext;
   };
 
   $: asset = data.asset;
   $: currency = data.baseCurrency;
+  $: newsAsset = data.newsContext.asset;
+
+  function signedPercent(value: number | null): string {
+    if (value === null) return '-';
+    return `${value > 0 ? '+' : ''}${formatPercent(value)}`;
+  }
+
+  function newsHref(assetId: string): string {
+    return `/news?range=${data.newsRange}&asset=${encodeURIComponent(assetId)}`;
+  }
 </script>
 
 <section class="page">
@@ -170,6 +184,71 @@
       </dl>
     </section>
   </div>
+
+  <section class="card asset-news-card">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Possible news context</span>
+        <h2>Recent related headlines</h2>
+      </div>
+      <div class="asset-news-actions">
+        <nav class="mini-tabs" aria-label="News range">
+          {#each data.newsRanges as range}
+            <a
+              class:active={data.newsRange === range.value}
+              href={`/assets/${encodeURIComponent(asset.assetId)}?newsRange=${range.value}`}
+              aria-current={data.newsRange === range.value ? 'page' : undefined}
+            >
+              {range.label}
+            </a>
+          {/each}
+        </nav>
+        <a class="btn" href={newsHref(asset.assetId)}>
+          <Newspaper size={17} />
+          Full news
+        </a>
+      </div>
+    </div>
+    {#if !newsAsset || newsAsset.articles.length === 0}
+      <div class="empty-state compact">
+        <p class="muted">
+          No recent related headlines matched {asset.assetSymbol} for {data.newsRange}.
+        </p>
+      </div>
+    {:else}
+      <div class="asset-news-layout">
+        <aside>
+          <span class="label">Recent price movement</span>
+          <strong class={signedClass(newsAsset.priceChangePercent ?? 0)}>
+            {signedPercent(newsAsset.priceChangePercent)}
+          </strong>
+          <p>{newsAsset.contextSummary}</p>
+          <div class="theme-row">
+            {#each newsAsset.themes as theme}
+              <span>{theme}</span>
+            {/each}
+          </div>
+        </aside>
+        <div class="headline-list">
+          {#each newsAsset.articles as article}
+            <article>
+              <div>
+                <span>{article.source}</span>
+                <span class="context-label {article.sentimentLabel}">
+                  {article.sentimentLabel}
+                </span>
+              </div>
+              <a href={article.url} target="_blank" rel="noreferrer">
+                {article.title}
+                <ExternalLink size={14} />
+              </a>
+            </article>
+          {/each}
+        </div>
+      </div>
+    {/if}
+    <p class="disclaimer">{data.newsContext.disclaimer}</p>
+  </section>
 
   <section class="card ledger-card">
     <div class="section-head">
@@ -303,7 +382,8 @@
   }
 
   .detail-grid,
-  .ledger-card {
+  .ledger-card,
+  .asset-news-card {
     margin-top: 1rem;
   }
 
@@ -359,9 +439,159 @@
     color: var(--negative);
   }
 
+  .eyebrow,
+  .asset-news-card .label {
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  .asset-news-actions,
+  .mini-tabs,
+  .asset-news-layout,
+  .theme-row,
+  .headline-list article div,
+  .headline-list a {
+    align-items: center;
+    display: flex;
+  }
+
+  .asset-news-actions {
+    gap: 0.5rem;
+  }
+
+  .mini-tabs {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    gap: 0.2rem;
+    padding: 0.2rem;
+  }
+
+  .mini-tabs a {
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 800;
+    min-height: 2rem;
+    min-width: 2.4rem;
+    padding: 0.35rem 0.55rem;
+    text-align: center;
+  }
+
+  .mini-tabs a:hover,
+  .mini-tabs a.active {
+    background: var(--surface-strong);
+    color: var(--text);
+  }
+
+  .asset-news-layout {
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .asset-news-layout aside {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    flex: 0 0 290px;
+    gap: 0.55rem;
+    padding: 0.85rem;
+  }
+
+  .asset-news-layout aside strong {
+    font-size: 1.7rem;
+    line-height: 1;
+  }
+
+  .asset-news-layout aside p,
+  .disclaimer {
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  .theme-row {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .theme-row span,
+  .context-label {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+    padding: 0.16rem 0.48rem;
+  }
+
+  .headline-list {
+    display: grid;
+    flex: 1;
+    gap: 0.65rem;
+  }
+
+  .headline-list article {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.75rem;
+  }
+
+  .headline-list article div {
+    gap: 0.5rem;
+    justify-content: space-between;
+  }
+
+  .headline-list article div span:first-child {
+    color: var(--muted);
+    font-size: 0.78rem;
+  }
+
+  .headline-list a {
+    gap: 0.3rem;
+    line-height: 1.35;
+  }
+
+  .headline-list a:hover {
+    color: var(--accent);
+  }
+
+  .context-label.positive {
+    color: var(--positive);
+  }
+
+  .context-label.negative {
+    color: var(--negative);
+  }
+
+  .context-label.mixed,
+  .context-label.neutral {
+    color: var(--amber);
+  }
+
+  .disclaimer {
+    margin-top: 0.8rem;
+  }
+
   @media (max-width: 680px) {
     .asset-title {
       align-items: flex-start;
+    }
+
+    .asset-news-actions,
+    .asset-news-layout,
+    .mini-tabs {
+      align-items: stretch;
+      display: grid;
+      grid-template-columns: 1fr;
+      width: 100%;
+    }
+
+    .asset-news-layout aside {
+      flex-basis: auto;
     }
   }
 </style>
