@@ -13,6 +13,8 @@ export const NEWS_RANGES = ['24h', '7d', '30d'] as const;
 export type NewsRange = (typeof NEWS_RANGES)[number];
 
 export const NEWS_CONTEXT_LABELS = ['positive', 'neutral', 'negative', 'mixed', 'unknown'] as const;
+export const NEWS_ARTICLE_SORTS = ['latest', 'matched', 'source'] as const;
+export type NewsArticleSort = (typeof NEWS_ARTICLE_SORTS)[number];
 
 export type NewsArticleSummary = {
   id: string;
@@ -48,6 +50,7 @@ export type NewsContextAsset = {
   symbol: string;
   name: string;
   priceChangePercent: number | null;
+  matchedArticleCount: number;
   themes: string[];
   contextSummary: string;
   articles: NewsContextArticle[];
@@ -98,6 +101,9 @@ type ArticleFilters = {
   sourceId?: string | null;
   theme?: string | null;
   sentimentLabel?: NewsSentimentLabel | null;
+  q?: string | null;
+  matchedOnly?: boolean;
+  sort?: NewsArticleSort;
   range?: NewsRange | null;
   limit?: number;
   now?: Date;
@@ -123,8 +129,55 @@ function parseStringArray(value: string | null): string[] {
   }
 }
 
-function articleTime(article: NewsArticleSummary): string {
+export function newsArticleTime(article: NewsArticleSummary): string {
   return article.publishedAt ?? article.fetchedAt;
+}
+
+function normalizedSearch(value: string | null | undefined): string {
+  return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function articleMatchesQuery(article: NewsArticleSummary, query: string): boolean {
+  if (!query) return true;
+  const haystack = [
+    article.title,
+    article.summary ?? '',
+    article.source,
+    article.sentimentLabel,
+    ...article.themes,
+    ...article.matchedAssets.flatMap((asset) => [asset.symbol, asset.name])
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(query);
+}
+
+function sortArticles(articles: NewsArticleSummary[], sort: NewsArticleSort): NewsArticleSummary[] {
+  const latestTime = (article: NewsArticleSummary) => {
+    const parsed = new Date(newsArticleTime(article)).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  return [...articles].sort((a, b) => {
+    if (sort === 'matched') {
+      return (
+        b.matchedAssets.length - a.matchedAssets.length ||
+        latestTime(b) - latestTime(a) ||
+        a.title.localeCompare(b.title)
+      );
+    }
+
+    if (sort === 'source') {
+      return (
+        a.source.localeCompare(b.source) ||
+        latestTime(b) - latestTime(a) ||
+        a.title.localeCompare(b.title)
+      );
+    }
+
+    return latestTime(b) - latestTime(a) || a.title.localeCompare(b.title);
+  });
 }
 
 function toNumber(value: string | null | undefined): number | null {
@@ -211,8 +264,10 @@ export function listNewsArticles(filters: ArticleFilters = {}): NewsArticleSumma
   const rows = loadArticleRows(Math.max(limit * 4, 100));
   const matches = loadMatchRows(rows.map((row) => row.id));
   const start = filters.range ? rangeStart(filters.range, filters.now ?? new Date()) : null;
+  const query = normalizedSearch(filters.q);
+  const sort = filters.sort ?? 'latest';
 
-  return rows
+  const articles = rows
     .map((row) => ({
       id: row.id,
       sourceId: row.sourceId,
@@ -233,16 +288,19 @@ export function listNewsArticles(filters: ArticleFilters = {}): NewsArticleSumma
       }))
     }))
     .filter((article) => !filters.sourceId || article.sourceId === filters.sourceId)
-    .filter((article) => !start || articleTime(article) >= start)
+    .filter((article) => !start || newsArticleTime(article) >= start)
     .filter((article) => !filters.theme || article.themes.includes(filters.theme))
     .filter(
       (article) => !filters.sentimentLabel || article.sentimentLabel === filters.sentimentLabel
     )
+    .filter((article) => !filters.matchedOnly || article.matchedAssets.length > 0)
+    .filter((article) => articleMatchesQuery(article, query))
     .filter(
       (article) =>
         !filters.assetId || article.matchedAssets.some((match) => match.assetId === filters.assetId)
-    )
-    .slice(0, limit);
+    );
+
+  return sortArticles(articles, sort).slice(0, limit);
 }
 
 export function getRecentMatchedArticles(
@@ -267,7 +325,7 @@ export function getNewsThemesByAsset(
   const scores = new Map<string, { count: number; latest: number }>();
 
   for (const article of articles) {
-    const latest = new Date(articleTime(article)).getTime();
+    const latest = new Date(newsArticleTime(article)).getTime();
     for (const theme of article.themes) {
       const current = scores.get(theme) ?? { count: 0, latest: 0 };
       scores.set(theme, {
@@ -352,13 +410,14 @@ export function getAssetNewsContext(
     };
   }
 
-  const articles = getRecentMatchedArticles(assetId, range, { now: options.now, limit: 20 });
+  const articles = getRecentMatchedArticles(assetId, range, { now: options.now, limit: 100 });
   const themes = getNewsThemesByAsset(assetId, range, { now: options.now, limit: 5 });
   const result = {
     assetId: asset.id,
     symbol: asset.symbol,
     name: asset.name,
     priceChangePercent: getAssetPriceChangePercent(asset.id, range, options),
+    matchedArticleCount: articles.length,
     themes,
     contextSummary: contextSummary(asset.symbol, range, themes, articles.length),
     articles: articles.slice(0, 5).map(toContextArticle)

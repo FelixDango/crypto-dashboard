@@ -63,5 +63,18 @@ describe('database migrations', () => {
       .map((row) => (row as { name: string }).name);
     expect(newsArticleColumns).toContain('sentiment_label');
     expect(newsArticleColumns).toContain('raw_themes_json');
+
+    const newsSourceIds = sqlite
+      .prepare('SELECT id FROM news_sources ORDER BY id')
+      .all()
+      .map((row) => (row as { id: string }).id);
+    expect(newsSourceIds).toEqual(
+      expect.arrayContaining([
+        'bitcoin-core',
+        'cryptoslate',
+        'ethereum-foundation-blog',
+        'the-block'
+      ])
+    );
   });
 });

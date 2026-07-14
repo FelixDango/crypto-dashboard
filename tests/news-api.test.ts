@@ -37,7 +37,7 @@ async function insertMatchedArticle() {
   const { db } = await import('../src/lib/server/db/client');
   const { newsArticles, newsArticleAssetMatches } = await import('../src/lib/server/db/schema');
   const id = randomUUID();
-  const now = '2026-07-06T12:00:00.000Z';
+  const now = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
   db.insert(newsArticles)
     .values({
@@ -127,13 +127,14 @@ describe('news API', () => {
       enabledSources: number;
       pendingSources: number;
       status: string;
-      sources: Array<{ status: string }>;
+      sources: Array<{ isEnabled: boolean; status: string }>;
     };
+    const enabledSources = payload.sources.filter((source) => source.isEnabled);
 
     expect(response.status).toBe(200);
     expect(payload.enabledSources).toBeGreaterThan(0);
     expect(payload.pendingSources).toBe(payload.enabledSources);
-    expect(payload.sources.every((source) => source.status === 'pending')).toBe(true);
+    expect(enabledSources.every((source) => source.status === 'pending')).toBe(true);
     expect(payload.status).toBe('warning');
   });
 
@@ -154,12 +155,13 @@ describe('news API', () => {
       enabledSources: number;
       failedSources: number;
       status: string;
-      sources: Array<{ status: string }>;
+      sources: Array<{ isEnabled: boolean; status: string }>;
     };
+    const enabledSources = payload.sources.filter((source) => source.isEnabled);
 
     expect(response.status).toBe(200);
     expect(payload.failedSources).toBe(payload.enabledSources);
-    expect(payload.sources.every((source) => source.status === 'broken')).toBe(true);
+    expect(enabledSources.every((source) => source.status === 'broken')).toBe(true);
     expect(payload.status).toBe('broken');
   });
 

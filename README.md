@@ -131,10 +131,14 @@ What it does not do:
 - It does not require paid APIs, API keys, OAuth, AI, PostgreSQL, or Kubernetes.
 - It does not block dashboard, accounting, analytics, or snapshots if a feed is unavailable.
 
-Default RSS rows are seeded in `news_sources` for CoinDesk, Cointelegraph, Decrypt, and Bitcoin
-Magazine. To add or edit sources, update `news_sources` in SQLite; keep `type = 'rss'`, set
-`is_enabled = 1`, and choose a `fetch_interval_minutes` value. Official project blogs can be added
-the same way.
+Default RSS rows are seeded in `news_sources` for CoinDesk, Cointelegraph, Decrypt, Bitcoin
+Magazine, CryptoSlate, Bitcoin Core, and the Ethereum Foundation Blog. The Block is also seeded as
+a disabled source row because its RSS endpoint is not reliably available. To add or edit sources,
+update `news_sources` in SQLite; keep `type = 'rss'`, set `is_enabled = 1`, and choose a
+`fetch_interval_minutes` value. Official project blogs can be added the same way.
+
+The `/news` page includes a private `Fetch now` form action that refreshes enabled RSS sources
+server-side and reloads the dashboard with a compact fetch summary.
 
 News endpoints:
 

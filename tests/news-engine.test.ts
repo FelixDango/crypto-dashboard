@@ -98,6 +98,37 @@ async function insertMatchedArticle(input: {
     .run();
 }
 
+async function insertUnmatchedArticle(input: {
+  title: string;
+  summary?: string | null;
+  themes: string[];
+  publishedAt: string;
+}) {
+  const { db } = await import('../src/lib/server/db/client');
+  const { newsArticles } = await import('../src/lib/server/db/schema');
+  const id = randomUUID();
+
+  db.insert(newsArticles)
+    .values({
+      id,
+      sourceId: 'test-source',
+      externalId: id,
+      url: `https://example.test/${id}`,
+      canonicalUrl: `https://example.test/${id}`,
+      title: input.title,
+      summary: input.summary ?? null,
+      publishedAt: input.publishedAt,
+      fetchedAt: input.publishedAt,
+      language: 'en',
+      rawAssetMentionsJson: null,
+      rawThemesJson: JSON.stringify(input.themes),
+      sentimentLabel: 'unknown',
+      createdAt: input.publishedAt,
+      updatedAt: input.publishedAt
+    })
+    .run();
+}
+
 describe('RSS parsing', () => {
   it('parses a valid RSS feed', () => {
     const articles = parseRssFeed(
@@ -259,5 +290,61 @@ describe('news ingestion and context generation', () => {
     for (const forbidden of ['caused', 'because', `should ${'buy'}`, `should ${'sell'}`]) {
       expect(context.asset?.contextSummary.toLowerCase()).not.toContain(forbidden);
     }
+  });
+
+  it('filters news by query and matched-only state and builds dashboard stats', async () => {
+    await seedHeldBitcoin();
+    await insertTestSource();
+    const recent = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const older = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    await insertMatchedArticle({
+      title: 'Bitcoin ETF inflows rise again',
+      themes: ['ETF'],
+      publishedAt: recent
+    });
+    await insertUnmatchedArticle({
+      title: 'Stablecoin policy update reaches committee',
+      summary: 'General crypto policy without a held-asset mention.',
+      themes: ['stablecoins', 'regulation'],
+      publishedAt: older
+    });
+    const { listNewsArticles } = await import('../src/lib/server/news/context');
+    const { getNewsDashboardData } = await import('../src/lib/server/news/dashboard');
+
+    const matchedOnly = listNewsArticles({
+      range: '7d',
+      q: 'ETF',
+      matchedOnly: true,
+      now: new Date()
+    });
+    const unmatchedPolicy = listNewsArticles({
+      range: '7d',
+      q: 'policy',
+      matchedOnly: false,
+      now: new Date()
+    });
+    const dashboard = await getNewsDashboardData({
+      range: '7d',
+      assetId: '',
+      sourceId: '',
+      theme: '',
+      sentimentLabel: null,
+      q: '',
+      matchedOnly: false,
+      sort: 'latest'
+    });
+
+    expect(matchedOnly).toHaveLength(1);
+    expect(matchedOnly[0].title).toContain('Bitcoin ETF');
+    expect(unmatchedPolicy).toHaveLength(1);
+    expect(unmatchedPolicy[0].matchedAssets).toHaveLength(0);
+    expect(dashboard.stats.totalArticles).toBe(2);
+    expect(dashboard.stats.matchedArticles).toBe(1);
+    expect(dashboard.themes.map((theme) => theme.theme)).toEqual(
+      expect.arrayContaining(['ETF', 'regulation', 'stablecoins'])
+    );
+    expect(dashboard.sources.find((source) => source.id === 'test-source')?.articlesInRange).toBe(
+      2
+    );
   });
 });
