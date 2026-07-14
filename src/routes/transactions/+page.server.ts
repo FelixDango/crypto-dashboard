@@ -12,8 +12,10 @@ import {
   listTransactionsWithAssets,
   updateTransaction
 } from '$lib/server/transactions';
+import { listAssets } from '$lib/server/assets';
 import { getAppSettings } from '$lib/server/settings';
 import { getErrorMessage } from '$lib/server/errors';
+import { refreshCurrentPricesForAssets } from '$lib/server/prices/cache';
 import { parseTransactionForm } from '$lib/validation/transaction';
 
 function actionError(error: unknown) {
@@ -21,6 +23,19 @@ function actionError(error: unknown) {
     return error.issues.map((issue) => issue.message).join(' ');
   }
   return getErrorMessage(error);
+}
+
+async function warmPriceCache(assetIds?: string[]) {
+  const selectedIds = assetIds ? new Set(assetIds) : null;
+  const assets = listAssets().filter((asset) => !selectedIds || selectedIds.has(asset.id));
+  if (assets.length === 0) return;
+
+  try {
+    const settings = getAppSettings();
+    await refreshCurrentPricesForAssets(assets, settings.baseCurrency, settings.priceProvider);
+  } catch {
+    // Price warming is best-effort; saving manual transactions must not depend on CoinGecko.
+  }
 }
 
 export function load() {
@@ -33,7 +48,8 @@ export function load() {
 export const actions = {
   create: async ({ request }) => {
     try {
-      await createTransaction(parseTransactionForm(await request.formData()));
+      const transaction = await createTransaction(parseTransactionForm(await request.formData()));
+      await warmPriceCache([transaction.assetId]);
       return { success: true, intent: 'create' };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'create' });
@@ -46,7 +62,8 @@ export const actions = {
     if (!id) return fail(400, { error: 'Missing transaction id.', intent: 'update' });
 
     try {
-      await updateTransaction(id, parseTransactionForm(formData));
+      const transaction = await updateTransaction(id, parseTransactionForm(formData));
+      await warmPriceCache([transaction.assetId]);
       return { success: true, intent: 'update' };
     } catch (error) {
       return fail(400, { error: actionError(error), intent: 'update' });
@@ -103,6 +120,7 @@ export const actions = {
         content || (await (file as File).text()),
         filename
       );
+      await warmPriceCache();
       return {
         success: true,
         intent: 'importCsv',

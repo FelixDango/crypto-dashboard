@@ -33,7 +33,9 @@
   $: snapshotSeries = overview.portfolioSnapshotSeries;
   $: selectedRange = data.snapshotRange;
   $: warnings = [...overview.priceWarnings, ...overview.fxWarnings];
-  $: alertMessage = refreshError || form?.snapshotError || warnings[0] || '';
+  $: alertMessages = [refreshError, form?.snapshotError, ...warnings].filter(
+    (message): message is string => Boolean(message)
+  );
   $: chartSummary = `Portfolio value is ${formatCurrency(
     overview.totals.currentValue,
     currency
@@ -139,10 +141,14 @@
     </div>
   </div>
 
-  {#if alertMessage}
+  {#if alertMessages.length > 0}
     <div class="notice warning-list">
       <TriangleAlert size={18} />
-      <span>{alertMessage}</span>
+      <div>
+        {#each alertMessages as message}
+          <span>{message}</span>
+        {/each}
+      </div>
     </div>
   {/if}
 
@@ -176,7 +182,11 @@
         value={formatCurrency(overview.totals.unrealizedProfit, currency)}
         kind="fiat"
       />
-      <span class="meta">Current value minus open cost</span>
+      <span class="meta">
+        {overview.totals.missingPriceCount > 0
+          ? 'Excludes missing market prices'
+          : 'Current value minus open cost'}
+      </span>
     </article>
     <article class="card metric-card">
       <span class="label">Realized P/L</span>
@@ -194,7 +204,11 @@
         value={formatCurrency(overview.totals.totalProfit, currency)}
         kind="fiat"
       />
-      <span class="meta">Realized plus unrealized</span>
+      <span class="meta">
+        {overview.totals.missingPriceCount > 0
+          ? 'Excludes missing market prices'
+          : 'Realized plus unrealized'}
+      </span>
     </article>
     <article class="card metric-card">
       <span class="label">Total ROI</span>
@@ -330,10 +344,15 @@
 
 <style>
   .warning-list {
-    align-items: center;
+    align-items: flex-start;
     display: flex;
     gap: 0.6rem;
     margin-bottom: 1rem;
+  }
+
+  .warning-list div {
+    display: grid;
+    gap: 0.25rem;
   }
 
   .toolbar {

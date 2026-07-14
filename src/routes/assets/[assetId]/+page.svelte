@@ -49,6 +49,7 @@
   $: asset = data.asset;
   $: currency = data.baseCurrency;
   $: newsAsset = data.newsContext.asset;
+  $: priced = asset.priceStatus !== 'missing';
 
   function signedPercent(value: number | null): string {
     if (value === null) return '-';
@@ -90,24 +91,36 @@
     </article>
     <article class="card metric-card">
       <span class="label">Current value</span>
-      <PrivacyValue
-        className="value"
-        value={formatCurrency(asset.currentValue, currency)}
-        kind="fiat"
-      />
+      {#if priced}
+        <PrivacyValue
+          className="value"
+          value={formatCurrency(asset.currentValue, currency)}
+          kind="fiat"
+        />
+      {:else}
+        <span class="value muted">-</span>
+      {/if}
       <span class="meta">
-        <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
-        per unit
+        {#if priced}
+          <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
+          per unit
+        {:else}
+          No cached market price
+        {/if}
       </span>
     </article>
     <article class="card metric-card">
       <span class="label">Unrealized P/L</span>
-      <PrivacyValue
-        className={`value ${signedClass(asset.unrealizedProfit)}`}
-        value={formatCurrency(asset.unrealizedProfit, currency)}
-        kind="fiat"
-      />
-      <span class="meta">Current value minus open cost</span>
+      {#if priced}
+        <PrivacyValue
+          className={`value ${signedClass(asset.unrealizedProfit)}`}
+          value={formatCurrency(asset.unrealizedProfit, currency)}
+          kind="fiat"
+        />
+      {:else}
+        <span class="value muted">-</span>
+      {/if}
+      <span class="meta">{priced ? 'Current value minus open cost' : 'Waiting for price'}</span>
     </article>
     <article class="card metric-card">
       <span class="label">Realized P/L</span>
@@ -137,13 +150,19 @@
         </div>
         <div>
           <dt>Total P/L</dt>
-          <dd class={signedClass(asset.totalProfit)}>
-            <PrivacyValue value={formatCurrency(asset.totalProfit, currency)} kind="fiat" />
-          </dd>
+          {#if priced}
+            <dd class={signedClass(asset.totalProfit)}>
+              <PrivacyValue value={formatCurrency(asset.totalProfit, currency)} kind="fiat" />
+            </dd>
+          {:else}
+            <dd class="muted">-</dd>
+          {/if}
         </div>
         <div>
           <dt>Total ROI</dt>
-          <dd class={signedClass(asset.roiPercent)}>{formatPercent(asset.roiPercent)}</dd>
+          <dd class={priced ? signedClass(asset.roiPercent) : 'muted'}>
+            {priced ? formatPercent(asset.roiPercent) : '-'}
+          </dd>
         </div>
         <div>
           <dt>Total fees</dt>
@@ -167,15 +186,27 @@
       <dl class="detail-list">
         <div>
           <dt>Current price</dt>
-          <dd><PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" /></dd>
+          <dd>
+            {#if priced}
+              <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
+            {:else}
+              <span class="muted">-</span>
+            {/if}
+          </dd>
         </div>
         <div>
           <dt>Current value</dt>
-          <dd><PrivacyValue value={formatCurrency(asset.currentValue, currency)} kind="fiat" /></dd>
+          <dd>
+            {#if priced}
+              <PrivacyValue value={formatCurrency(asset.currentValue, currency)} kind="fiat" />
+            {:else}
+              <span class="muted">-</span>
+            {/if}
+          </dd>
         </div>
         <div>
           <dt>Allocation</dt>
-          <dd>{formatPercent(asset.allocationPercent)}</dd>
+          <dd>{priced ? formatPercent(asset.allocationPercent) : '-'}</dd>
         </div>
         <div>
           <dt>Total buy cost</dt>

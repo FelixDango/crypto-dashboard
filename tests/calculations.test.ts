@@ -143,4 +143,24 @@ describe('portfolio calculations', () => {
     expect(portfolio.totals.realizedProfit).toBe('0');
     expect(new Decimal(portfolio.totals.roiPercent).toFixed(2)).toBe('33.33');
   });
+
+  it('does not treat missing prices as a 100% loss', () => {
+    const portfolio = calculatePortfolio(
+      [transaction({ quantity: '1', fiatAmount: '55000' })],
+      [],
+      'EUR'
+    );
+
+    expect(portfolio.holdings[0].priceStatus).toBe('missing');
+    expect(portfolio.holdings[0].currentValue).toBe('0');
+    expect(portfolio.holdings[0].unrealizedProfit).toBe('0');
+    expect(portfolio.holdings[0].roiPercent).toBe('0');
+    expect(portfolio.totals.unrealizedProfit).toBe('0');
+    expect(portfolio.totals.totalProfit).toBe('0');
+    expect(portfolio.totals.roiPercent).toBe('0');
+    expect(portfolio.totals.stalePriceCount).toBe(0);
+    expect(portfolio.totals.missingPriceCount).toBe(1);
+    expect(portfolio.allocation).toEqual([]);
+    expect(portfolio.worstPerformer).toBeNull();
+  });
 });

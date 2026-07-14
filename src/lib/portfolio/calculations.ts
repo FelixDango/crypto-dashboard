@@ -216,15 +216,19 @@ export function calculateHoldings(
       ? holding.costBasis.div(holding.currentQuantity)
       : new Decimal(0);
     const quote = quoteByAsset.get(holding.assetId);
-    const currentPrice = asDecimal(quote?.price);
-    const currentValue = holding.currentQuantity.mul(currentPrice);
-    const unrealizedProfit = currentValue.minus(holding.costBasis);
+    const hasPrice = Boolean(quote && quote.capturedAt !== null);
+    const currentPrice = hasPrice ? asDecimal(quote?.price) : new Decimal(0);
+    const currentValue = hasPrice ? holding.currentQuantity.mul(currentPrice) : new Decimal(0);
+    const unrealizedProfit = hasPrice ? currentValue.minus(holding.costBasis) : new Decimal(0);
     const totalProfit = unrealizedProfit.plus(holding.realizedProfit);
     const roiPercent = holding.totalBuyCost.gt(0)
       ? totalProfit.div(holding.totalBuyCost).mul(100)
       : new Decimal(0);
-    const priceStatus: HoldingSummary['priceStatus'] =
-      !quote || quote.capturedAt === null ? 'missing' : quote.stale ? 'stale' : 'fresh';
+    const priceStatus: HoldingSummary['priceStatus'] = !hasPrice
+      ? 'missing'
+      : quote?.stale
+        ? 'stale'
+        : 'fresh';
 
     return {
       assetId: holding.assetId,
@@ -244,7 +248,7 @@ export function calculateHoldings(
       realizedProfitApprox: toText(holding.realizedProfit),
       totalFees: toText(holding.totalFees),
       allocationPercent: '0',
-      stalePrice: quote?.stale ?? false,
+      stalePrice: priceStatus === 'stale',
       priceSource: quote?.source ?? null,
       priceCapturedAt: quote?.capturedAt ?? null,
       priceStatus,
@@ -297,7 +301,7 @@ export function calculatePortfolio(
     );
     accumulator.realizedProfit = accumulator.realizedProfitApprox;
     accumulator.totalFees = toText(new Decimal(accumulator.totalFees).plus(holding.totalFees));
-    accumulator.stalePriceCount += holding.stalePrice ? 1 : 0;
+    accumulator.stalePriceCount += holding.priceStatus === 'stale' ? 1 : 0;
     accumulator.missingPriceCount += holding.priceStatus === 'missing' ? 1 : 0;
     return accumulator;
   }, zeroTotals(baseCurrency));
@@ -312,12 +316,15 @@ export function calculatePortfolio(
     : '0';
 
   const openHoldings = holdings.filter((holding) => new Decimal(holding.quantity).gt(0));
-  const sortedByRoi = [...openHoldings].sort((a, b) => new Decimal(b.roiPercent).cmp(a.roiPercent));
+  const pricedOpenHoldings = openHoldings.filter((holding) => holding.priceStatus !== 'missing');
+  const sortedByRoi = [...pricedOpenHoldings].sort((a, b) =>
+    new Decimal(b.roiPercent).cmp(a.roiPercent)
+  );
 
   return {
     totals,
     holdings,
-    allocation: openHoldings.map((holding) => ({
+    allocation: pricedOpenHoldings.map((holding) => ({
       label: holding.assetSymbol,
       value: holding.currentValue
     })),
