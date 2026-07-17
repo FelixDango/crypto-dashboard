@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -27,15 +28,21 @@ export function runMigrations(db) {
     CREATE TABLE IF NOT EXISTS __drizzle_migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       hash TEXT NOT NULL,
+      checksum TEXT,
       created_at INTEGER NOT NULL
     );
   `);
 
-  const applied = new Set(
+  const migrationColumns = db.prepare('PRAGMA table_info(__drizzle_migrations)').all();
+  if (!migrationColumns.some((column) => column.name === 'checksum')) {
+    db.exec('ALTER TABLE __drizzle_migrations ADD COLUMN checksum TEXT');
+  }
+
+  const applied = new Map(
     db
-      .prepare('SELECT hash FROM __drizzle_migrations')
+      .prepare('SELECT hash, checksum FROM __drizzle_migrations')
       .all()
-      .map((row) => row.hash)
+      .map((row) => [row.hash, row.checksum])
   );
 
   const files = readdirSync(migrationDirectory)
@@ -43,14 +50,26 @@ export function runMigrations(db) {
     .sort((a, b) => a.localeCompare(b));
 
   for (const file of files) {
-    if (applied.has(file)) continue;
     const sql = readFileSync(path.join(migrationDirectory, file), 'utf8');
+    const currentChecksum = createHash('sha256').update(sql).digest('hex');
+    const appliedChecksum = applied.get(file);
+    if (applied.has(file)) {
+      if (appliedChecksum && appliedChecksum !== currentChecksum) {
+        throw new Error(`Applied migration ${file} has been modified.`);
+      }
+      if (!appliedChecksum) {
+        db.prepare('UPDATE __drizzle_migrations SET checksum = ? WHERE hash = ?').run(
+          currentChecksum,
+          file
+        );
+      }
+      continue;
+    }
     db.transaction(() => {
       db.exec(sql);
-      db.prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)').run(
-        file,
-        Date.now()
-      );
+      db.prepare(
+        'INSERT INTO __drizzle_migrations (hash, checksum, created_at) VALUES (?, ?, ?)'
+      ).run(file, currentChecksum, Date.now());
     })();
     console.log(`Applied migration ${file}`);
   }

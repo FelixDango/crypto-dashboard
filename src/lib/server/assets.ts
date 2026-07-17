@@ -4,6 +4,10 @@ import { db } from './db/client';
 import { assets, type AssetRow } from './db/schema';
 import { getPriceProvider } from './prices/providers';
 
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const searchCache = new Map<string, { expiresAt: number; results: AssetRecord[] }>();
+const searchRequests = new Map<string, Promise<AssetRecord[]>>();
+
 export type AssetInput = {
   provider?: string;
   providerCoinId: string;
@@ -122,8 +126,26 @@ export async function searchAssets(query: string): Promise<AssetRecord[]> {
     .all()
     .map(mapAsset);
 
-  const provider = getPriceProvider('coingecko');
-  const remote = await provider.searchCoins(cleaned).catch(() => []);
+  const cacheKey = cleaned.toLowerCase();
+  const cached = searchCache.get(cacheKey);
+  let remote: AssetRecord[];
+  if (cached && cached.expiresAt > Date.now()) {
+    remote = cached.results;
+  } else {
+    let request = searchRequests.get(cacheKey);
+    if (!request) {
+      const provider = getPriceProvider('coingecko');
+      request = provider.searchCoins(cleaned).catch(() => []);
+      searchRequests.set(cacheKey, request);
+    }
+    try {
+      remote = await request;
+      searchCache.set(cacheKey, { expiresAt: Date.now() + SEARCH_CACHE_TTL_MS, results: remote });
+      if (searchCache.size > 100) searchCache.delete(searchCache.keys().next().value ?? cacheKey);
+    } finally {
+      if (searchRequests.get(cacheKey) === request) searchRequests.delete(cacheKey);
+    }
+  }
   const merged = [...local];
   const seen = new Set(local.map((asset) => `${asset.provider}:${asset.providerCoinId}`));
 

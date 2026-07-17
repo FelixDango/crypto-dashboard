@@ -43,6 +43,12 @@ describe('database migrations', () => {
       .map((row) => (row as { name: string }).name);
     expect(snapshotIndexes).toContain('portfolio_snapshots_bucket_unique');
 
+    const transactionIndexes = sqlite
+      .prepare("PRAGMA index_list('transactions')")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(transactionIndexes).toContain('transactions_date_created_idx');
+
     const lotColumns = sqlite
       .prepare('PRAGMA table_info(asset_lots)')
       .all()
@@ -76,5 +82,11 @@ describe('database migrations', () => {
         'the-block'
       ])
     );
+
+    const migrationRows = sqlite
+      .prepare('SELECT hash, checksum FROM __drizzle_migrations')
+      .all() as Array<{ hash: string; checksum: string | null }>;
+    expect(migrationRows.length).toBeGreaterThan(0);
+    expect(migrationRows.every((row) => row.checksum?.length === 64)).toBe(true);
   });
 });

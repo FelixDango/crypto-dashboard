@@ -6,7 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseRssFeed } from '../src/lib/server/news/rss';
 import { matchArticleToAssets } from '../src/lib/server/news/matching';
 import { classifyContextLabel, extractThemes } from '../src/lib/server/news/themes';
-import type { NewsProvider, NewsSource } from '../src/lib/server/news/provider';
+import {
+  normalizeArticleUrl,
+  type NewsProvider,
+  type NewsSource
+} from '../src/lib/server/news/provider';
 
 function resetDatabase() {
   const dir = mkdtempSync(path.join(tmpdir(), 'krypto-dashboard-news-engine-'));
@@ -130,6 +134,15 @@ async function insertUnmatchedArticle(input: {
 }
 
 describe('RSS parsing', () => {
+  it('accepts only valid HTTP(S) article URLs', () => {
+    expect(normalizeArticleUrl('https://example.test/story#comments')).toBe(
+      'https://example.test/story'
+    );
+    expect(normalizeArticleUrl('javascript:alert(1)')).toBe('');
+    expect(normalizeArticleUrl('data:text/html,unsafe')).toBe('');
+    expect(normalizeArticleUrl('not a URL')).toBe('');
+  });
+
   it('parses a valid RSS feed', () => {
     const articles = parseRssFeed(
       `

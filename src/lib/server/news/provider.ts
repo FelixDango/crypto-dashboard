@@ -22,9 +22,10 @@ export function normalizeArticleUrl(value: string): string {
 
   try {
     const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
     url.hash = '';
     return url.toString();
   } catch {
-    return trimmed;
+    return '';
   }
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
+  import { tick } from 'svelte';
   import Decimal from 'decimal.js';
   import { Download, Pencil, Plus, Search, Trash2, TriangleAlert, Upload, X } from '@lucide/svelte';
   import AssetSearch from '$lib/components/AssetSearch.svelte';
@@ -65,6 +66,7 @@
   let addFiatCurrency: 'EUR' | 'USD' = data.settings.baseCurrency;
   let addFeeAmount = '';
   let addFeeCurrency: 'EUR' | 'USD' = data.settings.baseCurrency;
+  let returnFocus: HTMLElement | null = null;
 
   $: filtered = data.transactions.filter((transaction) => {
     const text =
@@ -101,7 +103,23 @@
     return new Date().toISOString().slice(0, 10);
   }
 
-  function openAdd() {
+  function rememberFocus() {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  async function focusDialogControl(id: string) {
+    await tick();
+    document.getElementById(id)?.focus();
+  }
+
+  async function restoreFocus() {
+    await tick();
+    returnFocus?.focus();
+    returnFocus = null;
+  }
+
+  async function openAdd() {
+    rememberFocus();
     selectedAddAsset = null;
     addType = 'buy';
     addDate = defaultDate();
@@ -111,6 +129,72 @@
     addFeeAmount = '';
     addFeeCurrency = data.settings.baseCurrency;
     showAdd = true;
+    await focusDialogControl('add-asset-search');
+  }
+
+  async function openImport() {
+    rememberFocus();
+    showImport = true;
+    await focusDialogControl('csv-file');
+  }
+
+  async function openEdit(transaction: TransactionRecord) {
+    rememberFocus();
+    editing = transaction;
+    await focusDialogControl('edit-asset-search');
+  }
+
+  async function openDelete(transaction: TransactionRecord) {
+    rememberFocus();
+    deleting = transaction;
+    await focusDialogControl('confirm-delete');
+  }
+
+  function closeAdd() {
+    showAdd = false;
+    void restoreFocus();
+  }
+
+  function closeImport() {
+    showImport = false;
+    void restoreFocus();
+  }
+
+  function closeEdit() {
+    editing = null;
+    void restoreFocus();
+  }
+
+  function closeDelete() {
+    deleting = null;
+    void restoreFocus();
+  }
+
+  function handleDialogKeydown(event: KeyboardEvent, close: () => void) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+
+    const dialog = event.currentTarget as HTMLElement;
+    const controls = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => element.offsetParent !== null);
+    if (controls.length === 0) return;
+
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function decimalValue(value: string): Decimal | null {
@@ -165,7 +249,7 @@
         <Download size={17} />
         CSV
       </a>
-      <button class="btn" type="button" on:click={() => (showImport = true)}>
+      <button class="btn" type="button" on:click={openImport}>
         <Upload size={17} />
         Import
       </button>
@@ -200,9 +284,7 @@
     {#if filtered.length === 0}
       <div class="empty-state">
         <h2>No matching transactions</h2>
-        <button class="btn primary" type="button" on:click={() => (showAdd = true)}
-          >Add transaction</button
-        >
+        <button class="btn primary" type="button" on:click={openAdd}>Add transaction</button>
       </div>
     {:else}
       <div class="table-wrap mobile-cards">
@@ -274,7 +356,8 @@
                       class="btn icon"
                       type="button"
                       title="Edit"
-                      on:click={() => (editing = transaction)}
+                      aria-label={`Edit ${transaction.assetSymbol} transaction`}
+                      on:click={() => openEdit(transaction)}
                     >
                       <Pencil size={16} />
                     </button>
@@ -282,7 +365,8 @@
                       class="btn icon danger"
                       type="button"
                       title="Delete"
-                      on:click={() => (deleting = transaction)}
+                      aria-label={`Delete ${transaction.assetSymbol} transaction`}
+                      on:click={() => openDelete(transaction)}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -299,17 +383,30 @@
 
 {#if showAdd}
   <div class="modal-backdrop" role="presentation">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-title">
+    <div
+      class="modal"
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="add-title"
+      on:keydown={(event) => handleDialogKeydown(event, closeAdd)}
+    >
       <div class="modal-header">
         <h2 id="add-title">Add transaction</h2>
-        <button class="btn icon" type="button" on:click={() => (showAdd = false)}
-          ><X size={17} /></button
+        <button
+          class="btn icon"
+          type="button"
+          aria-label="Close add transaction"
+          on:click={closeAdd}><X size={17} /></button
         >
       </div>
-      <form method="POST" action="?/create" use:enhance={closeOnSuccess(() => (showAdd = false))}>
+      <form method="POST" action="?/create" use:enhance={closeOnSuccess(closeAdd)}>
         <div class="field-grid">
           <div class="field full">
-            <AssetSearch on:select={(event) => (selectedAddAsset = event.detail)} />
+            <AssetSearch
+              inputId="add-asset-search"
+              on:select={(event) => (selectedAddAsset = event.detail)}
+            />
           </div>
           <div class="field">
             <label class="field-label" for="type">Type</label>
@@ -379,7 +476,7 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button class="btn" type="button" on:click={() => (showAdd = false)}>Cancel</button>
+          <button class="btn" type="button" on:click={closeAdd}>Cancel</button>
           <button class="btn primary" type="submit">Save</button>
         </div>
       </form>
@@ -389,18 +486,29 @@
 
 {#if editing}
   <div class="modal-backdrop" role="presentation">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+    <div
+      class="modal"
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="edit-title"
+      on:keydown={(event) => handleDialogKeydown(event, closeEdit)}
+    >
       <div class="modal-header">
         <h2 id="edit-title">Edit transaction</h2>
-        <button class="btn icon" type="button" on:click={() => (editing = null)}
-          ><X size={17} /></button
+        <button
+          class="btn icon"
+          type="button"
+          aria-label="Close edit transaction"
+          on:click={closeEdit}><X size={17} /></button
         >
       </div>
-      <form method="POST" action="?/update" use:enhance={closeOnSuccess(() => (editing = null))}>
+      <form method="POST" action="?/update" use:enhance={closeOnSuccess(closeEdit)}>
         <input type="hidden" name="id" value={editing.id} />
         <div class="field-grid">
           <div class="field full">
             <AssetSearch
+              inputId="edit-asset-search"
               initialProvider={editing.assetId.split(':')[0]}
               initialProviderCoinId={editing.assetId.split(':').slice(1).join(':')}
               initialSymbol={editing.assetSymbol}
@@ -478,7 +586,7 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button class="btn" type="button" on:click={() => (editing = null)}>Cancel</button>
+          <button class="btn" type="button" on:click={closeEdit}>Cancel</button>
           <button class="btn primary" type="submit">Update</button>
         </div>
       </form>
@@ -488,22 +596,33 @@
 
 {#if deleting}
   <div class="modal-backdrop" role="presentation">
-    <div class="modal confirm" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+    <div
+      class="modal confirm"
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="delete-title"
+      aria-describedby="delete-description"
+      on:keydown={(event) => handleDialogKeydown(event, closeDelete)}
+    >
       <div class="modal-header">
         <h2 id="delete-title">Delete transaction</h2>
-        <button class="btn icon" type="button" on:click={() => (deleting = null)}
-          ><X size={17} /></button
+        <button
+          class="btn icon"
+          type="button"
+          aria-label="Close delete confirmation"
+          on:click={closeDelete}><X size={17} /></button
         >
       </div>
-      <p class="muted">
+      <p class="muted" id="delete-description">
         Delete {deleting.assetSymbol}
         {deleting.type} from {formatDate(deleting.transactionDate)}?
       </p>
-      <form method="POST" action="?/delete" use:enhance={closeOnSuccess(() => (deleting = null))}>
+      <form method="POST" action="?/delete" use:enhance={closeOnSuccess(closeDelete)}>
         <input type="hidden" name="id" value={deleting.id} />
         <div class="modal-actions">
-          <button class="btn" type="button" on:click={() => (deleting = null)}>Cancel</button>
-          <button class="btn danger" type="submit">Delete</button>
+          <button class="btn" type="button" on:click={closeDelete}>Cancel</button>
+          <button class="btn danger" id="confirm-delete" type="submit">Delete</button>
         </div>
       </form>
     </div>
@@ -512,10 +631,17 @@
 
 {#if showImport}
   <div class="modal-backdrop" role="presentation">
-    <div class="modal confirm" role="dialog" aria-modal="true" aria-labelledby="import-title">
+    <div
+      class="modal confirm"
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="import-title"
+      on:keydown={(event) => handleDialogKeydown(event, closeImport)}
+    >
       <div class="modal-header">
         <h2 id="import-title">Import CSV</h2>
-        <button class="btn icon" type="button" on:click={() => (showImport = false)}
+        <button class="btn icon" type="button" aria-label="Close CSV import" on:click={closeImport}
           ><X size={17} /></button
         >
       </div>
@@ -525,7 +651,7 @@
           <input id="csv-file" name="csv_file" type="file" accept=".csv,text/csv" required />
         </div>
         <div class="modal-actions">
-          <button class="btn" type="button" on:click={() => (showImport = false)}>Cancel</button>
+          <button class="btn" type="button" on:click={closeImport}>Cancel</button>
           <button class="btn primary" type="submit">Preview</button>
         </div>
       </form>
@@ -567,16 +693,11 @@
               </tbody>
             </table>
           </div>
-          <form
-            method="POST"
-            action="?/importCsv"
-            use:enhance={closeOnSuccess(() => (showImport = false))}
-          >
+          <form method="POST" action="?/importCsv" use:enhance={closeOnSuccess(closeImport)}>
             <input type="hidden" name="filename" value={form.filename ?? ''} />
             <textarea class="hidden-content" name="csv_content">{form.csvContent}</textarea>
             <div class="modal-actions">
-              <button class="btn" type="button" on:click={() => (showImport = false)}>Cancel</button
-              >
+              <button class="btn" type="button" on:click={closeImport}>Cancel</button>
               <button class="btn primary" type="submit">Import ready rows</button>
             </div>
           </form>

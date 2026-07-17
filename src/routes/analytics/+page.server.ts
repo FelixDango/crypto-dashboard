@@ -1,15 +1,15 @@
 import type { PageServerLoad } from './$types';
-import {
-  ANALYTICS_RANGES,
-  type AnalyticsAllocationResponse,
-  type AnalyticsDrawdownResponse,
-  type AnalyticsHealthSummary,
-  type AnalyticsMonthlyResponse,
-  type AnalyticsPerformanceResponse,
-  type AnalyticsRange,
-  type AnalyticsSummary
-} from '$lib/analytics/types';
+import { ANALYTICS_RANGES, type AnalyticsRange } from '$lib/analytics/types';
 import { generateCycleWindows, getCycleProgress } from '$lib/server/insights/market-cycle';
+import {
+  getAnalyticsAllocation,
+  getAnalyticsDrawdown,
+  getAnalyticsMonthly,
+  getAnalyticsPerformance,
+  getAnalyticsSummary
+} from '$lib/server/analytics/service';
+import { getAnalyticsHealthSummary, getPriceHealth } from '$lib/server/analytics/history-health';
+import { getPortfolioOverviewContext } from '$lib/server/portfolio/service';
 
 function validRange(value: string | null): AnalyticsRange {
   return ANALYTICS_RANGES.some((range) => range.value === value)
@@ -17,24 +17,19 @@ function validRange(value: string | null): AnalyticsRange {
     : '30d';
 }
 
-async function readJson<T>(fetch: typeof globalThis.fetch, path: string): Promise<T> {
-  const response = await fetch(path);
-  if (!response.ok) {
-    throw new Error(`Analytics request failed for ${path}.`);
-  }
-  return (await response.json()) as T;
-}
-
-export const load: PageServerLoad = async ({ fetch, url }) => {
+export const load: PageServerLoad = async ({ url }) => {
   const range = validRange(url.searchParams.get('range'));
-  const [summary, performance, drawdown, monthly, allocation, health] = await Promise.all([
-    readJson<AnalyticsSummary>(fetch, '/api/analytics/summary'),
-    readJson<AnalyticsPerformanceResponse>(fetch, `/api/analytics/performance?range=${range}`),
-    readJson<AnalyticsDrawdownResponse>(fetch, `/api/analytics/drawdown?range=${range}`),
-    readJson<AnalyticsMonthlyResponse>(fetch, '/api/analytics/monthly'),
-    readJson<AnalyticsAllocationResponse>(fetch, '/api/analytics/allocation'),
-    readJson<AnalyticsHealthSummary>(fetch, '/api/analytics/health')
+  const { overview, normalizedTransactions } = await getPortfolioOverviewContext();
+  const baseCurrency = overview.totals.baseCurrency;
+  const priceHealth = await getPriceHealth({ baseCurrency, normalizedTransactions });
+  const [summary, monthly, allocation, health] = await Promise.all([
+    getAnalyticsSummary({ baseCurrency, overview, normalizedTransactions }),
+    getAnalyticsMonthly({ baseCurrency, normalizedTransactions }),
+    getAnalyticsAllocation({ baseCurrency, overview, priceHealth }),
+    getAnalyticsHealthSummary({ baseCurrency, normalizedTransactions, priceHealth })
   ]);
+  const performance = getAnalyticsPerformance(range, { baseCurrency });
+  const drawdown = getAnalyticsDrawdown(range, { baseCurrency });
 
   return {
     range,

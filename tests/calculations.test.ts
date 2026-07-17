@@ -108,6 +108,45 @@ describe('portfolio calculations', () => {
     expect(holdings[0].ledger[2].runningAverageCost).toBe('200');
   });
 
+  it('uses pooled average cost for a sale after differently priced buys', () => {
+    const holdings = calculateHoldings(
+      [
+        transaction({
+          quantity: '1',
+          fiatAmount: '100',
+          transactionDate: '2025-01-01T12:00:00.000Z'
+        }),
+        transaction({
+          quantity: '1',
+          fiatAmount: '200',
+          transactionDate: '2025-01-02T12:00:00.000Z'
+        }),
+        transaction({
+          type: 'sell',
+          quantity: '1',
+          fiatAmount: '300',
+          transactionDate: '2025-02-01T12:00:00.000Z'
+        })
+      ],
+      [btcQuote]
+    );
+
+    expect(holdings[0].quantity).toBe('1');
+    expect(holdings[0].averageCost).toBe('150');
+    expect(holdings[0].costBasis).toBe('150');
+    expect(holdings[0].realizedProfit).toBe('150');
+    expect(holdings[0].ledger[2].realizedCostBasis).toBe('150');
+  });
+
+  it('preserves 18-decimal token quantities', () => {
+    const holdings = calculateHoldings(
+      [transaction({ quantity: '1.000000000000000001', fiatAmount: '100' })],
+      [btcQuote]
+    );
+
+    expect(holdings[0].quantity).toBe('1.000000000000000001');
+  });
+
   it('uses normalized fiat amounts for mixed-currency transactions', () => {
     const usdBuy = {
       ...transaction({ fiatAmount: '100', fiatCurrency: 'USD' }),
@@ -116,7 +155,9 @@ describe('portfolio calculations', () => {
       fxRate: '0.9',
       fxSource: 'test',
       fxDate: '2025-01-01',
-      fxCapturedAt: '2025-01-02T12:00:00.000Z'
+      fxCapturedAt: '2025-01-02T12:00:00.000Z',
+      fxStatus: 'complete',
+      fxComplete: true
     } satisfies NormalizedTransactionRecord;
 
     const portfolio = calculatePortfolio([usdBuy], [btcQuote], 'EUR');
@@ -160,6 +201,7 @@ describe('portfolio calculations', () => {
     expect(portfolio.totals.roiPercent).toBe('0');
     expect(portfolio.totals.stalePriceCount).toBe(0);
     expect(portfolio.totals.missingPriceCount).toBe(1);
+    expect(portfolio.totals.financialDataComplete).toBe(false);
     expect(portfolio.allocation).toEqual([]);
     expect(portfolio.worstPerformer).toBeNull();
   });

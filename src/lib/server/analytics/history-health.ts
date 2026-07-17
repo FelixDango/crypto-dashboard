@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type {
   AnalyticsHealthStatus,
   AnalyticsHealthSummary,
@@ -9,7 +9,7 @@ import type {
   SnapshotGap,
   SnapshotHealth
 } from '$lib/analytics/types';
-import type { Currency, PortfolioSnapshotType } from '$lib/types';
+import type { Currency, NormalizedTransactionRecord, PortfolioSnapshotType } from '$lib/types';
 import { calculatePortfolio } from '$lib/portfolio/calculations';
 import { db } from '$lib/server/db/client';
 import {
@@ -58,11 +58,16 @@ function snapshotRows(baseCurrency: Currency, snapshotType?: PortfolioSnapshotTy
   const rows = db
     .select()
     .from(portfolioSnapshots)
-    .where(eq(portfolioSnapshots.baseCurrency, baseCurrency))
+    .where(
+      and(
+        eq(portfolioSnapshots.baseCurrency, baseCurrency),
+        snapshotType ? eq(portfolioSnapshots.snapshotType, snapshotType) : undefined
+      )
+    )
     .orderBy(asc(portfolioSnapshots.bucketAt))
     .all();
 
-  return snapshotType ? rows.filter((row) => row.snapshotType === snapshotType) : rows;
+  return rows;
 }
 
 export function detectSnapshotGaps(
@@ -102,7 +107,10 @@ export function getHistoryGaps(
     : ['hourly', 'daily'];
 
   return types.flatMap((snapshotType) =>
-    detectSnapshotGaps(snapshotType, snapshotRows(baseCurrency, snapshotType))
+    detectSnapshotGaps(
+      snapshotType,
+      snapshotRows(baseCurrency, snapshotType).filter((row) => row.priceStatus !== 'failed')
+    )
   );
 }
 
@@ -152,14 +160,13 @@ export function getSnapshotHealth(
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
   const now = options.now ?? new Date();
   const rows = snapshotRows(baseCurrency);
+  const usableRows = rows.filter((row) => row.priceStatus !== 'failed');
   const last24h = new Date(now.getTime() - DAY_MS).toISOString();
   const recentRows = rows.filter((row) => row.capturedAt >= last24h);
-  const hourly = latestSnapshotFreshness('hourly', rows, now);
-  const daily = latestSnapshotFreshness('daily', rows, now);
+  const hourly = latestSnapshotFreshness('hourly', usableRows, now);
+  const daily = latestSnapshotFreshness('daily', usableRows, now);
   const latestSuccessfulSnapshotAt =
-    rows
-      .filter((row) => row.priceStatus !== 'failed')
-      .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0]?.capturedAt ?? null;
+    usableRows.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))[0]?.capturedAt ?? null;
   const failedSnapshotsLast24h = recentRows.filter((row) => row.priceStatus === 'failed').length;
   const staleSnapshotsLast24h = recentRows.filter((row) => row.priceStatus === 'stale').length;
   const priceStatusHealth: AnalyticsHealthStatus =
@@ -167,7 +174,9 @@ export function getSnapshotHealth(
 
   return {
     status:
-      rows.length === 0 ? 'broken' : worstStatus([hourly.status, daily.status, priceStatusHealth]),
+      usableRows.length === 0
+        ? 'broken'
+        : worstStatus([hourly.status, daily.status, priceStatusHealth]),
     hourly,
     daily,
     latestSuccessfulSnapshotAt,
@@ -180,10 +189,13 @@ function latestPriceSnapshotsByAsset(
   fiatCurrency: Currency,
   assetIds: string[]
 ): Map<string, PriceSnapshotRow> {
+  if (assetIds.length === 0) return new Map();
   const rows = db
     .select()
     .from(priceSnapshots)
-    .where(eq(priceSnapshots.fiatCurrency, fiatCurrency))
+    .where(
+      and(eq(priceSnapshots.fiatCurrency, fiatCurrency), inArray(priceSnapshots.assetId, assetIds))
+    )
     .orderBy(desc(priceSnapshots.capturedAt))
     .all();
   const wanted = new Set(assetIds);
@@ -198,15 +210,18 @@ function latestPriceSnapshotsByAsset(
 }
 
 export async function getPriceHealth(
-  options: { baseCurrency?: Currency; now?: Date } = {}
+  options: {
+    baseCurrency?: Currency;
+    now?: Date;
+    normalizedTransactions?: NormalizedTransactionRecord[];
+  } = {}
 ): Promise<PriceHealth> {
   const settings = getAppSettings();
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
   const now = options.now ?? new Date();
-  const normalizedTransactions = await normalizeTransactions(
-    listTransactionsWithAssets(),
-    baseCurrency
-  );
+  const normalizedTransactions =
+    options.normalizedTransactions ??
+    (await normalizeTransactions(listTransactionsWithAssets(), baseCurrency));
   const preliminary = calculatePortfolio(normalizedTransactions, [], baseCurrency);
   const activeHoldings = preliminary.holdings.filter((holding) =>
     asDecimal(holding.quantity).gt(0)
@@ -332,11 +347,16 @@ function gapStatus(gaps: SnapshotGap[]): AnalyticsHealthStatus {
 }
 
 export async function getAnalyticsHealthSummary(
-  options: { baseCurrency?: Currency; now?: Date } = {}
+  options: {
+    baseCurrency?: Currency;
+    now?: Date;
+    normalizedTransactions?: NormalizedTransactionRecord[];
+    priceHealth?: PriceHealth;
+  } = {}
 ): Promise<AnalyticsHealthSummary> {
   const checkedAt = (options.now ?? new Date()).toISOString();
   const snapshotHealth = getSnapshotHealth(options);
-  const priceHealth = await getPriceHealth(options);
+  const priceHealth = options.priceHealth ?? (await getPriceHealth(options));
   const gaps = getHistoryGaps(options);
   const status = worstStatus([snapshotHealth.status, priceHealth.status, gapStatus(gaps)]);
   const messages = [

@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import type { AnalyticsHealthStatus } from '$lib/analytics/types';
 import { calculatePortfolio } from '$lib/portfolio/calculations';
+import { normalizeTransactions } from '$lib/server/fx/cache';
 import { db } from '$lib/server/db/client';
 import {
   portfolioSnapshots,
@@ -18,7 +19,7 @@ import { listTransactionsWithAssets } from '$lib/server/transactions';
 import {
   assertNoNegativeHoldings,
   ensurePortfolioAccounting,
-  listOpenLots
+  listAverageCostPositions
 } from '$lib/server/portfolio/accounting';
 
 type ConfidenceCategoryName = 'snapshots' | 'prices' | 'transactions' | 'accounting';
@@ -223,7 +224,6 @@ function scoreTransactions(): ConfidenceCategory {
   const missingQuantity = rows.filter((row) => !safeDecimal(row.quantity)).length;
   const missingFiat = rows.filter((row) => !safeDecimal(row.fiatAmount)).length;
   const missingDate = rows.filter((row) => !row.transactionDate).length;
-  const missingFees = rows.filter((row) => !row.feeAmount).length;
 
   if (missingQuantity > 0) {
     issues.push(
@@ -240,11 +240,6 @@ function scoreTransactions(): ConfidenceCategory {
   if (missingDate > 0) {
     issues.push(`${missingDate} transaction${missingDate === 1 ? '' : 's'} missing date.`);
     score -= Math.min(40, missingDate * 15);
-  }
-
-  if (missingFees > 0 && rows.length > 0) {
-    issues.push(`${missingFees} transaction${missingFees === 1 ? '' : 's'} have no fee entered.`);
-    score -= Math.min(8, missingFees);
   }
 
   try {
@@ -299,23 +294,32 @@ async function scoreAccounting(): Promise<ConfidenceCategory> {
     return category(35, issues);
   }
 
-  const calculated = calculatePortfolio(rows, [], settings.baseCurrency);
-  const lots = listOpenLots();
-  const lotQuantityByAsset = new Map<string, Decimal>();
-
-  for (const lot of lots) {
-    lotQuantityByAsset.set(
-      lot.assetId,
-      (lotQuantityByAsset.get(lot.assetId) ?? new Decimal(0)).plus(lot.remainingQuantity)
+  const normalized = await normalizeTransactions(rows, settings.baseCurrency);
+  const incompleteFx = normalized.filter((transaction) => !transaction.fxComplete);
+  if (incompleteFx.length > 0) {
+    issues.push(
+      `${incompleteFx.length} transaction${incompleteFx.length === 1 ? '' : 's'} excluded because FX conversion is unavailable.`
     );
+    score -= Math.min(60, incompleteFx.length * 20);
   }
+  const calculated = calculatePortfolio(normalized, [], settings.baseCurrency);
+  const positions = new Map(
+    listAverageCostPositions().map((position) => [position.assetId, position])
+  );
 
   for (const holding of calculated.holdings) {
     const expected = asDecimal(holding.quantity);
     if (expected.lte(0)) continue;
-    const actual = lotQuantityByAsset.get(holding.assetId) ?? new Decimal(0);
-    if (actual.minus(expected).abs().gt('0.00000001')) {
-      issues.push(`${holding.assetSymbol} open lots do not match transaction-derived holdings.`);
+    const position = positions.get(holding.assetId);
+    const actual = asDecimal(position?.remainingQuantity);
+    const actualCost = asDecimal(position?.costBasisTotal);
+    if (
+      actual.minus(expected).abs().gt('0.000000000000000001') ||
+      actualCost.minus(holding.costBasis).abs().gt('0.00000001')
+    ) {
+      issues.push(
+        `${holding.assetSymbol} average-cost projection does not match the normalized transaction ledger.`
+      );
       score -= 25;
     }
   }

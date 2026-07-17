@@ -16,6 +16,10 @@ const exports = {
     filename: 'open-lots.csv',
     create: exportOpenLotsToCsv
   },
+  'average-cost-positions': {
+    filename: 'average-cost-positions.csv',
+    create: exportOpenLotsToCsv
+  },
   'realized-pnl': {
     filename: 'realized-pnl.csv',
     create: exportRealizedPnlToCsv

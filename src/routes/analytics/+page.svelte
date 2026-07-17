@@ -295,18 +295,18 @@
     </div>
   </div>
 
-  {#if data.summary.messages.length > 0}
+  {#each data.summary.messages as message}
     <div class="notice analytics-notice">
       <AlertTriangle size={18} />
-      <span>{data.summary.messages[0]}</span>
+      <span>{message}</span>
     </div>
-  {/if}
-
-  <CycleCard progress={data.cycle} />
+  {/each}
 
   <div class="grid analytics-metrics">
     <article class="card metric-card">
-      <span class="label">Current portfolio value</span>
+      <span class="label">
+        {data.summary.financialDataComplete ? 'Current portfolio value' : 'Partial portfolio value'}
+      </span>
       <PrivacyValue
         className="value"
         value={formatCurrency(data.summary.currentValue, currency)}
@@ -328,14 +328,14 @@
       <strong class="value {signedClass(data.summary.currentDrawdownPercent ?? 0)}">
         {optionalPercent(data.summary.currentDrawdownPercent)}
       </strong>
-      <span class="meta">Drawdown is zero or negative</span>
+      <span class="meta">Portfolio value drawdown; cash flows included</span>
     </article>
     <article class="card metric-card">
       <span class="label">Max drawdown</span>
       <strong class="value {signedClass(data.summary.maxDrawdownPercent ?? 0)}">
         {optionalPercent(data.summary.maxDrawdownPercent)}
       </strong>
-      <span class="meta">Worst historical drawdown</span>
+      <span class="meta">Raw value drawdown; cash flows included</span>
     </article>
     {#each changeCards as card}
       <article class="card metric-card">
@@ -374,11 +374,29 @@
       <strong class="value {signedClass(data.summary.totalRoiPercent)}">
         {formatPercent(data.summary.totalRoiPercent)}
       </strong>
-      <span class="meta"
-        >{oneYearChange.available ? '1y history available' : '1y needs more data'}</span
-      >
+      <span class="meta">
+        Profit divided by cumulative buy cost · {oneYearChange.available
+          ? '1y history available'
+          : '1y needs more data'}
+      </span>
+    </article>
+    <article class="card metric-card">
+      <span class="label">Time-weighted return</span>
+      <strong class="value {signedClass(data.summary.timeWeightedReturnPercent ?? 0)}">
+        {optionalPercent(data.summary.timeWeightedReturnPercent)}
+      </strong>
+      <span class="meta">Snapshot-based, adjusted for external cash flows</span>
+    </article>
+    <article class="card metric-card">
+      <span class="label">Money-weighted return</span>
+      <strong class="value {signedClass(data.summary.moneyWeightedReturnPercent ?? 0)}">
+        {optionalPercent(data.summary.moneyWeightedReturnPercent)}
+      </strong>
+      <span class="meta">Annualized XIRR from dated contributions and withdrawals</span>
     </article>
   </div>
+
+  <CycleCard progress={data.cycle} />
 
   <div class="grid two-column analytics-main">
     <section class="card chart-card">
@@ -455,6 +473,15 @@
   </div>
 
   <div class="grid two-column analytics-main">
+    {#if !data.monthly.financialDataComplete}
+      <div class="notice monthly-notice">
+        <AlertTriangle size={18} />
+        <span>
+          {data.monthly.excludedTransactionCount} transaction(s) are excluded from monthly analytics because
+          FX conversion is unavailable.
+        </span>
+      </div>
+    {/if}
     <section class="card chart-card">
       <div class="section-head">
         <div class="section-title">
@@ -746,13 +773,26 @@
   .analytics-page {
     display: grid;
     gap: 1rem;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .analytics-page > *,
+  .analytics-main > *,
+  .chart-head > * {
+    min-width: 0;
   }
 
   .analytics-notice,
+  .monthly-notice,
   .inline-notice {
     align-items: center;
     display: flex;
     gap: 0.55rem;
+  }
+
+  .monthly-notice {
+    grid-column: 1 / -1;
   }
 
   .analytics-metrics {
@@ -964,7 +1004,7 @@
     }
   }
 
-  @media (max-width: 1180px) {
+  @media (max-width: 1500px) {
     .analytics-metrics,
     .health-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));

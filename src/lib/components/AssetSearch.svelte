@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import { Search } from '@lucide/svelte';
   import CryptoIcon from './CryptoIcon.svelte';
 
@@ -17,6 +17,7 @@
   export let initialSymbol = '';
   export let initialName = '';
   export let initialImageUrl: string | null = null;
+  export let inputId = 'asset-search';
 
   const dispatch = createEventDispatcher<{ select: AssetChoice }>();
   let query = initialSymbol && initialName ? `${initialSymbol} - ${initialName}` : '';
@@ -33,6 +34,7 @@
   let open = false;
   let activeIndex = -1;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let requestController: AbortController | null = null;
 
   $: hasSelection = Boolean(selected.providerCoinId && selected.symbol && selected.name);
   $: activeOptionId = activeIndex >= 0 ? `asset-option-${activeIndex}` : undefined;
@@ -48,19 +50,33 @@
   async function search() {
     const cleaned = query.trim();
     if (cleaned.length < 2) {
+      requestController?.abort();
       results = [];
       open = false;
+      loading = false;
       return;
     }
 
+    requestController?.abort();
+    const controller = new AbortController();
+    requestController = controller;
     loading = true;
     try {
-      const response = await fetch(`/api/assets/search?q=${encodeURIComponent(cleaned)}`);
-      results = response.ok ? await response.json() : [];
+      const response = await fetch(`/api/assets/search?q=${encodeURIComponent(cleaned)}`, {
+        signal: controller.signal
+      });
+      const nextResults = response.ok ? await response.json() : [];
+      if (controller.signal.aborted || query.trim() !== cleaned) return;
+      results = nextResults;
       open = results.length > 0;
       activeIndex = results.length > 0 ? 0 : -1;
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) throw error;
     } finally {
-      loading = false;
+      if (requestController === controller) {
+        requestController = null;
+        loading = false;
+      }
     }
   }
 
@@ -97,14 +113,19 @@
       activeIndex = -1;
     }
   }
+
+  onDestroy(() => {
+    if (timer) clearTimeout(timer);
+    requestController?.abort();
+  });
 </script>
 
 <div class="asset-search">
-  <label class="field-label" for="asset-search">Coin</label>
+  <label class="field-label" for={inputId}>Coin</label>
   <div class="search-input">
     <Search size={17} aria-hidden="true" />
     <input
-      id="asset-search"
+      id={inputId}
       name="asset_query"
       role="combobox"
       aria-autocomplete="list"

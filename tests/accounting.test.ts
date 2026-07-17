@@ -46,7 +46,7 @@ async function modules() {
   };
 }
 
-describe('FIFO accounting', () => {
+describe('average-cost accounting', () => {
   beforeEach(() => {
     vi.resetModules();
     resetDatabase();
@@ -65,7 +65,7 @@ describe('FIFO accounting', () => {
     expect(lots[0].costBasisPerUnit).toBe('105');
   });
 
-  it('keeps multiple buys as separate FIFO lots', async () => {
+  it('pools multiple buys into one average-cost position', async () => {
     const { createTransaction, listOpenLots } = await modules();
 
     await createTransaction(tx({ quantity: '1', fiatAmount: '100' }));
@@ -74,11 +74,14 @@ describe('FIFO accounting', () => {
     );
 
     const lots = listOpenLots('coingecko:bitcoin');
-    expect(lots).toHaveLength(2);
-    expect(lots.map((lot) => lot.costBasisTotal)).toEqual(['100', '150']);
+    expect(lots).toHaveLength(1);
+    expect(lots[0].originalQuantity).toBe('2');
+    expect(lots[0].remainingQuantity).toBe('2');
+    expect(lots[0].costBasisTotal).toBe('250');
+    expect(lots[0].costBasisPerUnit).toBe('125');
   });
 
-  it('records a partial sell against the oldest lot', async () => {
+  it('records a partial sell against the pooled average cost', async () => {
     const { createTransaction, listLotDisposals, listOpenLots } = await modules();
 
     await createTransaction(tx({ quantity: '2', fiatAmount: '200' }));
@@ -99,7 +102,7 @@ describe('FIFO accounting', () => {
     expect(disposals[0].realizedProfit).toBe('25');
   });
 
-  it('sells across multiple lots oldest first', async () => {
+  it('uses the pooled average after differently priced buys', async () => {
     const { createTransaction, listLotDisposals, listOpenLots } = await modules();
 
     await createTransaction(tx({ quantity: '1', fiatAmount: '100' }));
@@ -111,16 +114,16 @@ describe('FIFO accounting', () => {
     );
 
     const lots = listOpenLots('coingecko:bitcoin');
-    const disposals = listLotDisposals('coingecko:bitcoin').sort((a, b) =>
-      a.quantitySold.localeCompare(b.quantitySold)
-    );
+    const disposals = listLotDisposals('coingecko:bitcoin');
 
     expect(lots).toHaveLength(1);
     expect(lots[0].remainingQuantity).toBe('0.5');
-    expect(lots[0].costBasisTotal).toBe('100');
-    expect(disposals.map((disposal) => disposal.quantitySold)).toEqual(['0.5', '1']);
-    expect(disposals.map((disposal) => disposal.costBasisAmount)).toEqual(['100', '100']);
-    expect(disposals.map((disposal) => disposal.realizedProfit)).toEqual(['50', '200']);
+    expect(lots[0].costBasisTotal).toBe('75');
+    expect(lots[0].costBasisPerUnit).toBe('150');
+    expect(disposals).toHaveLength(1);
+    expect(disposals[0].quantitySold).toBe('1.5');
+    expect(disposals[0].costBasisAmount).toBe('225');
+    expect(disposals[0].realizedProfit).toBe('225');
   });
 
   it('fully sells a lot and leaves no open lots', async () => {
@@ -223,9 +226,66 @@ describe('FIFO accounting', () => {
     await deleteTransaction(sell.id);
 
     expect(listLotDisposals('coingecko:bitcoin')).toHaveLength(0);
-    expect(listOpenLots('coingecko:bitcoin').map((lot) => lot.remainingQuantity)).toEqual([
-      '1',
-      '1'
-    ]);
+    const position = listOpenLots('coingecko:bitcoin')[0];
+    expect(position.remainingQuantity).toBe('2');
+    expect(position.costBasisTotal).toBe('400');
+    expect(position.costBasisPerUnit).toBe('200');
+  });
+
+  it('matches the canonical multi-buy partial-sale average-cost example', async () => {
+    const { createTransaction, listLotDisposals, listOpenLots } = await modules();
+
+    await createTransaction(tx({ quantity: '1', fiatAmount: '100' }));
+    await createTransaction(
+      tx({ quantity: '1', fiatAmount: '200', transactionDate: '2025-01-02T12:00:00.000Z' })
+    );
+    await createTransaction(
+      tx({ type: 'sell', quantity: '1', fiatAmount: '300', transactionDate: '2025-02-01' })
+    );
+
+    const position = listOpenLots('coingecko:bitcoin')[0];
+    const disposal = listLotDisposals('coingecko:bitcoin')[0];
+    expect(position.remainingQuantity).toBe('1');
+    expect(position.costBasisTotal).toBe('150');
+    expect(position.costBasisPerUnit).toBe('150');
+    expect(disposal.costBasisAmount).toBe('150');
+    expect(disposal.realizedProfit).toBe('150');
+  });
+
+  it('preserves quantities beyond twelve decimal places', async () => {
+    const { createTransaction, listOpenLots } = await modules();
+
+    await createTransaction(
+      tx({ quantity: '1.000000000000000001', fiatAmount: '100', feeAmount: '0' })
+    );
+
+    const position = listOpenLots('coingecko:bitcoin')[0];
+    expect(position.originalQuantity).toBe('1.000000000000000001');
+    expect(position.remainingQuantity).toBe('1.000000000000000001');
+  });
+
+  it('never persists an unconverted 1:1 FX fallback', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('FX provider unavailable');
+      })
+    );
+    const { createTransaction, db, getFxRateForDate, listOpenLots, transactions } =
+      await (async () => {
+        const loaded = await modules();
+        const fx = await import('../src/lib/server/fx/cache');
+        return { ...loaded, ...fx };
+      })();
+
+    const quote = await getFxRateForDate('USD', 'EUR', '2025-01-01');
+    expect(quote.status).toBe('missing');
+    expect(quote.rate).toBeNull();
+
+    await expect(createTransaction(tx({ fiatCurrency: 'USD', fiatAmount: '100' }))).rejects.toThrow(
+      /Accounting rebuild deferred/
+    );
+    expect(db.select().from(transactions).all()).toHaveLength(0);
+    expect(listOpenLots()).toHaveLength(0);
   });
 });

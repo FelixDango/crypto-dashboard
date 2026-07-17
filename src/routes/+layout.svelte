@@ -62,8 +62,13 @@
 
     <nav aria-label="Primary navigation">
       {#each nav as item}
-        <a class:active={$page.url.pathname.startsWith(item.href)} href={item.href}>
-          <svelte:component this={item.icon} size={18} />
+        <a
+          class:active={$page.url.pathname.startsWith(item.href)}
+          href={item.href}
+          aria-label={item.label}
+          aria-current={$page.url.pathname.startsWith(item.href) ? 'page' : undefined}
+        >
+          <svelte:component this={item.icon} size={18} aria-hidden="true" />
           <span>{item.label}</span>
         </a>
       {/each}
@@ -73,6 +78,7 @@
       class="privacy-toggle"
       type="button"
       aria-pressed={$privacyLevel !== 'off'}
+      aria-label={privacyLevelLabel($privacyLevel)}
       title={privacyLevelLabel($privacyLevel)}
       on:click={togglePrivacy}
     >
@@ -155,6 +161,12 @@
   :global(select),
   :global(textarea) {
     font: inherit;
+  }
+
+  :global(a:focus-visible),
+  :global(button:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .app-shell {
@@ -527,7 +539,7 @@
     }
   }
 
-  @media (max-width: 980px) {
+  @media (max-width: 1180px) {
     .app-shell {
       grid-template-columns: 1fr;
     }

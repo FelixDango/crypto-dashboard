@@ -8,8 +8,9 @@ import type {
   MonthlyPnl
 } from '$lib/analytics/types';
 import type { TransactionType } from '$lib/types';
+import { moneyText } from '$lib/portfolio/decimal';
 
-Decimal.set({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
+Decimal.set({ precision: 50, rounding: Decimal.ROUND_HALF_UP });
 
 type ValuePoint = {
   value: string | number;
@@ -27,6 +28,7 @@ type MonthlyTransactionInput = {
 
 type MonthlySnapshotInput = {
   bucketAt: string;
+  capturedAt?: string;
   value: string;
 };
 
@@ -52,8 +54,7 @@ function asDecimal(value: string | number | null | undefined): Decimal {
 
 function toText(value: Decimal): string {
   if (!value.isFinite()) return '0';
-  const cleaned = value.abs().lt('0.000000000001') ? new Decimal(0) : value;
-  return cleaned.toDecimalPlaces(12).toString();
+  return moneyText(value);
 }
 
 function monthKey(value: string): string {
@@ -68,12 +69,32 @@ function monthLabel(key: string): string {
     .replace(' ', ' ');
 }
 
+function monthStart(key: string): number {
+  return new Date(`${key}-01T00:00:00.000Z`).getTime();
+}
+
+function nextMonthStart(key: string): number {
+  const date = new Date(`${key}-01T00:00:00.000Z`);
+  date.setUTCMonth(date.getUTCMonth() + 1);
+  return date.getTime();
+}
+
+function snapshotTime(snapshot: MonthlySnapshotInput): number {
+  return new Date(snapshot.capturedAt ?? snapshot.bucketAt).getTime();
+}
+
 function normalizedFiat(transaction: MonthlyTransactionInput): Decimal {
   return asDecimal(transaction.normalizedFiatAmount ?? transaction.fiatAmount);
 }
 
 function normalizedFee(transaction: MonthlyTransactionInput): Decimal {
   return asDecimal(transaction.normalizedFeeAmount ?? transaction.feeAmount);
+}
+
+function transactionNetContribution(transaction: MonthlyTransactionInput): Decimal {
+  const fiat = normalizedFiat(transaction);
+  const fee = normalizedFee(transaction);
+  return transaction.type === 'buy' ? fiat.plus(fee) : fiat.minus(fee).negated();
 }
 
 export function calculateRunningAth<T extends ValuePoint>(
@@ -112,13 +133,12 @@ export function calculateMaxDrawdown(points: ValuePoint[]): string {
   const drawdowns = calculateDrawdowns(points);
   if (drawdowns.length === 0) return '0';
 
-  return drawdowns
-    .reduce((minimum, point) => {
+  return toText(
+    drawdowns.reduce((minimum, point) => {
       const value = asDecimal(point.drawdownPercent);
       return value.lt(minimum) ? value : minimum;
     }, new Decimal(0))
-    .toDecimalPlaces(12)
-    .toString();
+  );
 }
 
 export function calculatePeriodChange(
@@ -207,56 +227,152 @@ export function calculateMonthlyContributions(
 
 export function calculateMonthlyPnl(
   snapshots: MonthlySnapshotInput[],
-  contributions: MonthlyContribution[]
+  transactions: MonthlyTransactionInput[]
 ): MonthlyPnl[] {
-  const contributionsByMonth = new Map(contributions.map((item) => [item.month, item]));
-  const snapshotsByMonth = new Map<string, MonthlySnapshotInput[]>();
-
-  for (const snapshot of snapshots) {
-    const key = monthKey(snapshot.bucketAt);
-    const rows = snapshotsByMonth.get(key) ?? [];
-    rows.push(snapshot);
-    snapshotsByMonth.set(key, rows);
-  }
-
-  const months = new Set([...contributionsByMonth.keys(), ...snapshotsByMonth.keys()]);
+  const orderedSnapshots = [...snapshots].sort(
+    (left, right) => snapshotTime(left) - snapshotTime(right)
+  );
+  const months = new Set([
+    ...transactions.map((transaction) => monthKey(transaction.transactionDate)),
+    ...orderedSnapshots.map((snapshot) => monthKey(snapshot.bucketAt))
+  ]);
 
   return [...months]
     .sort((a, b) => a.localeCompare(b))
     .map((month) => {
-      const rows = (snapshotsByMonth.get(month) ?? []).sort((a, b) =>
-        a.bucketAt.localeCompare(b.bucketAt)
-      );
-      const contribution = contributionsByMonth.get(month);
-      const netContribution = asDecimal(contribution?.netContribution);
+      const startAt = monthStart(month);
+      const nextAt = nextMonthStart(month);
+      const rows = orderedSnapshots.filter((snapshot) => {
+        const bucketAt = new Date(snapshot.bucketAt).getTime();
+        return bucketAt >= startAt && bucketAt < nextAt;
+      });
+      const end = rows.at(-1);
+      const boundaryBaseline = orderedSnapshots
+        .filter((snapshot) => new Date(snapshot.bucketAt).getTime() <= startAt)
+        .at(-1);
+      const baseline = boundaryBaseline ?? (rows.length >= 2 ? rows[0] : undefined);
 
-      if (rows.length < 2) {
+      if (!baseline || !end || baseline === end) {
         return {
           month,
           label: monthLabel(month),
-          startValue: rows[0]?.value ?? null,
-          endValue: rows.at(-1)?.value ?? null,
-          netContribution: toText(netContribution),
+          startValue: baseline?.value ?? null,
+          endValue: end?.value ?? null,
+          netContribution: '0',
           monthlyPnl: null,
           complete: false,
-          message: 'Monthly start/end snapshots are incomplete.'
+          message: 'A usable month-boundary baseline and end snapshot are required.'
         };
       }
 
-      const start = rows[0];
-      const end = rows.at(-1) as MonthlySnapshotInput;
-      const monthlyPnl = asDecimal(end.value).minus(start.value).minus(netContribution);
+      const baselineAt = snapshotTime(baseline);
+      const endAt = snapshotTime(end);
+      const netContribution = transactions.reduce((sum, transaction) => {
+        const transactionAt = new Date(transaction.transactionDate).getTime();
+        return transactionAt > baselineAt && transactionAt <= endAt
+          ? sum.plus(transactionNetContribution(transaction))
+          : sum;
+      }, new Decimal(0));
+      const monthlyPnl = asDecimal(end.value).minus(baseline.value).minus(netContribution);
 
       return {
         month,
         label: monthLabel(month),
-        startValue: start.value,
+        startValue: baseline.value,
         endValue: end.value,
         netContribution: toText(netContribution),
         monthlyPnl: toText(monthlyPnl),
         complete: true
       };
     });
+}
+
+export function calculateTimeWeightedReturn(
+  snapshots: MonthlySnapshotInput[],
+  transactions: MonthlyTransactionInput[]
+): string | null {
+  const ordered = [...snapshots].sort((left, right) => snapshotTime(left) - snapshotTime(right));
+  if (ordered.length < 2) return null;
+
+  let growth = new Decimal(1);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const start = ordered[index - 1];
+    const end = ordered[index];
+    const startValue = asDecimal(start.value);
+    if (startValue.lte(0)) return null;
+
+    const startAt = snapshotTime(start);
+    const endAt = snapshotTime(end);
+    const netFlow = transactions.reduce((sum, transaction) => {
+      const transactionAt = new Date(transaction.transactionDate).getTime();
+      return transactionAt > startAt && transactionAt <= endAt
+        ? sum.plus(transactionNetContribution(transaction))
+        : sum;
+    }, new Decimal(0));
+    const periodGrowth = asDecimal(end.value).minus(netFlow).div(startValue);
+    if (periodGrowth.lte(0)) return null;
+    growth = growth.mul(periodGrowth);
+  }
+
+  return toText(growth.minus(1).mul(100));
+}
+
+type DatedCashFlow = { at: string; amount: Decimal };
+
+function xnpv(rate: Decimal, cashFlows: DatedCashFlow[]): Decimal {
+  const firstAt = new Date(cashFlows[0].at).getTime();
+  const yearMs = new Decimal(365.2425).mul(24).mul(60).mul(60).mul(1000);
+  return cashFlows.reduce((sum, cashFlow) => {
+    const years = new Decimal(new Date(cashFlow.at).getTime() - firstAt).div(yearMs);
+    return sum.plus(cashFlow.amount.div(rate.plus(1).pow(years)));
+  }, new Decimal(0));
+}
+
+export function calculateMoneyWeightedReturn(
+  transactions: MonthlyTransactionInput[],
+  terminalValue: string,
+  valuationAt: string
+): string | null {
+  const cashFlows: DatedCashFlow[] = transactions.map((transaction) => ({
+    at: transaction.transactionDate,
+    amount: transactionNetContribution(transaction).negated()
+  }));
+  cashFlows.push({ at: valuationAt, amount: asDecimal(terminalValue) });
+  cashFlows.sort((left, right) => left.at.localeCompare(right.at));
+
+  if (
+    cashFlows.length < 2 ||
+    !cashFlows.some((cashFlow) => cashFlow.amount.lt(0)) ||
+    !cashFlows.some((cashFlow) => cashFlow.amount.gt(0))
+  ) {
+    return null;
+  }
+
+  let lower = new Decimal('-0.999999');
+  let upper = new Decimal(1);
+  let lowerValue = xnpv(lower, cashFlows);
+  let upperValue = xnpv(upper, cashFlows);
+  for (let index = 0; index < 32 && lowerValue.mul(upperValue).gt(0); index += 1) {
+    upper = upper.mul(2).plus(1);
+    upperValue = xnpv(upper, cashFlows);
+  }
+  if (lowerValue.mul(upperValue).gt(0)) return null;
+
+  for (let index = 0; index < 160; index += 1) {
+    const midpoint = lower.plus(upper).div(2);
+    const midpointValue = xnpv(midpoint, cashFlows);
+    if (midpointValue.abs().lt('0.000000000000000001')) {
+      return toText(midpoint.mul(100));
+    }
+    if (lowerValue.mul(midpointValue).lte(0)) {
+      upper = midpoint;
+    } else {
+      lower = midpoint;
+      lowerValue = midpointValue;
+    }
+  }
+
+  return toText(lower.plus(upper).div(2).mul(100));
 }
 
 export function calculateAllocation(
@@ -273,14 +389,17 @@ export function calculateAllocation(
       const allocationPercent = totalValue.gt(0)
         ? asDecimal(asset.currentValue).div(totalValue).mul(100)
         : new Decimal(0);
-      const baseline = baselineAllocationByAsset.get(asset.assetId) ?? null;
-      const drift = baseline ? allocationPercent.minus(baseline) : null;
+      const baseline =
+        baselineAllocationByAsset.size === 0
+          ? null
+          : (baselineAllocationByAsset.get(asset.assetId) ?? '0');
+      const drift = baseline === null ? null : allocationPercent.minus(baseline);
 
       return {
         ...asset,
         allocationPercent: toText(allocationPercent),
         baselineAllocationPercent: baseline,
-        allocationDriftPercent: drift ? toText(drift) : null
+        allocationDriftPercent: drift === null ? null : toText(drift)
       };
     })
     .sort((a, b) => asDecimal(b.currentValue).cmp(a.currentValue));

@@ -125,6 +125,101 @@ describe('portfolio snapshots', () => {
     expect(prices[0].stale).toBe(true);
   });
 
+  it('excludes failed snapshots from analytics and repairs the same bucket later', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+      )
+    );
+    const { createTransaction } = await import('../src/lib/server/transactions');
+    await createTransaction({
+      asset: {
+        provider: 'coingecko',
+        providerCoinId: 'bitcoin',
+        symbol: 'BTC',
+        name: 'Bitcoin'
+      },
+      type: 'buy',
+      quantity: '2',
+      fiatAmount: '300',
+      fiatCurrency: 'EUR',
+      feeAmount: '0',
+      feeCurrency: 'EUR',
+      transactionDate: '2026-01-01T12:00:00.000Z'
+    });
+    const { createPortfolioSnapshot, listPortfolioSnapshotSeries } =
+      await import('../src/lib/server/portfolio/snapshots');
+    const now = new Date('2026-07-05T12:34:00.000Z');
+    const failed = await createPortfolioSnapshot('hourly', { now });
+
+    expect(failed.snapshot.priceStatus).toBe('failed');
+    expect(listPortfolioSnapshotSeries('EUR', '24h', now).points).toEqual([]);
+
+    const { db } = await import('../src/lib/server/db/client');
+    const { priceSnapshots, portfolioSnapshots } = await import('../src/lib/server/db/schema');
+    db.insert(priceSnapshots)
+      .values({
+        id: randomUUID(),
+        assetId: 'coingecko:bitcoin',
+        fiatCurrency: 'EUR',
+        price: '200',
+        source: 'test',
+        capturedAt: new Date().toISOString()
+      })
+      .run();
+
+    const repaired = await createPortfolioSnapshot('hourly', { now });
+    expect(repaired.result).toBe('repaired');
+    expect(repaired.snapshot.priceStatus).toBe('fresh');
+    expect(repaired.snapshot.totalValue).toBe('400');
+    expect(listPortfolioSnapshotSeries('EUR', '24h', now).points).toHaveLength(1);
+    expect(db.select().from(portfolioSnapshots).all()).toHaveLength(1);
+  });
+
+  it('marks an old provider timestamp as stale immediately after refresh', async () => {
+    const oldTimestamp = Math.floor((Date.now() - 60 * 60 * 1000) / 1000);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ bitcoin: { eur: 200, last_updated_at: oldTimestamp } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          })
+      )
+    );
+    const { createTransaction } = await import('../src/lib/server/transactions');
+    await createTransaction({
+      asset: {
+        provider: 'coingecko',
+        providerCoinId: 'bitcoin',
+        symbol: 'BTC',
+        name: 'Bitcoin'
+      },
+      type: 'buy',
+      quantity: '1',
+      fiatAmount: '100',
+      fiatCurrency: 'EUR',
+      feeAmount: '0',
+      feeCurrency: 'EUR',
+      transactionDate: '2026-01-01T12:00:00.000Z'
+    });
+    const { refreshCurrentPricesForAssets } = await import('../src/lib/server/prices/cache');
+    const { db } = await import('../src/lib/server/db/client');
+    const { assets } = await import('../src/lib/server/db/schema');
+    const asset = db.select().from(assets).get();
+    if (!asset) throw new Error('Expected seeded asset.');
+
+    const quotes = await refreshCurrentPricesForAssets([asset], 'EUR');
+    expect(quotes[0].stale).toBe(true);
+    expect(quotes[0].warning).toContain('provider timestamp is stale');
+  });
+
   it('rejects missing and invalid internal cron secrets without creating snapshots', async () => {
     const { POST } = await import('../src/routes/api/internal/snapshots/hourly/+server');
     const { db } = await import('../src/lib/server/db/client');

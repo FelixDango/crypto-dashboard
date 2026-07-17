@@ -9,6 +9,7 @@ import { recordPriceUpdateEvent } from './events';
 import { getPriceProvider } from './providers';
 
 type SnapshotRow = typeof priceSnapshots.$inferSelect;
+const currentPriceRequests = new Map<string, Promise<ProviderPrice[]>>();
 
 function mapSnapshot(snapshot: SnapshotRow, stale: boolean, warning?: string): PriceQuote {
   return {
@@ -35,8 +36,48 @@ function latestSnapshot(assetId: string, currency: Currency): SnapshotRow | null
 }
 
 function snapshotIsFresh(snapshot: SnapshotRow): boolean {
-  const ageMs = Date.now() - new Date(snapshot.capturedAt).getTime();
+  return capturedAtIsFresh(snapshot.capturedAt);
+}
+
+function capturedAtIsFresh(capturedAt: string): boolean {
+  const ageMs = Date.now() - new Date(capturedAt).getTime();
   return ageMs <= getPriceCacheTtlSeconds() * 1000;
+}
+
+function snapshotAt(assetId: string, currency: Currency, capturedAt: string): SnapshotRow | null {
+  return (
+    db
+      .select()
+      .from(priceSnapshots)
+      .where(
+        and(
+          eq(priceSnapshots.assetId, assetId),
+          eq(priceSnapshots.fiatCurrency, currency),
+          eq(priceSnapshots.capturedAt, capturedAt)
+        )
+      )
+      .limit(1)
+      .get() ?? null
+  );
+}
+
+async function fetchCurrentPricesOnce(
+  providerId: string,
+  providerCoinIds: string[],
+  currency: Currency
+): Promise<ProviderPrice[]> {
+  const provider = getPriceProvider(providerId);
+  const key = `${providerId}:${currency}:${[...providerCoinIds].sort().join(',')}`;
+  const existing = currentPriceRequests.get(key);
+  if (existing) return existing;
+
+  const request = provider.getCurrentPrices(providerCoinIds, currency);
+  currentPriceRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (currentPriceRequests.get(key) === request) currentPriceRequests.delete(key);
+  }
 }
 
 export function getCachedPricesForAssets(
@@ -94,7 +135,8 @@ export async function refreshCurrentPricesForAssets(
   const provider = getPriceProvider(providerId);
   try {
     const checkedAt = new Date().toISOString();
-    const fetched = await provider.getCurrentPrices(
+    const fetched = await fetchCurrentPricesOnce(
+      provider.id,
       needsFetch.map((asset) => asset.providerCoinId),
       currency
     );
@@ -145,23 +187,27 @@ export async function refreshCurrentPricesForAssets(
       }
 
       const capturedAt = price.capturedAt ?? new Date().toISOString();
-      db.insert(priceSnapshots)
-        .values({
-          id: randomUUID(),
-          assetId: asset.id,
-          fiatCurrency: currency,
-          price: price.price,
-          source: provider.id,
-          capturedAt
-        })
-        .run();
+      const stale = !capturedAtIsFresh(capturedAt);
+      if (!snapshotAt(asset.id, currency, capturedAt)) {
+        db.insert(priceSnapshots)
+          .values({
+            id: randomUUID(),
+            assetId: asset.id,
+            fiatCurrency: currency,
+            price: price.price,
+            source: provider.id,
+            capturedAt
+          })
+          .run();
+      }
 
       recordPriceUpdateEvent({
         assetId: asset.id,
         provider: provider.id,
         fiatCurrency: currency,
-        status: 'success',
+        status: stale ? 'stale_fallback' : 'success',
         price: price.price,
+        errorMessage: stale ? `${asset.symbol} provider timestamp is stale.` : undefined,
         checkedAt
       });
 
@@ -171,7 +217,8 @@ export async function refreshCurrentPricesForAssets(
         currency,
         source: provider.id,
         capturedAt,
-        stale: false
+        stale,
+        warning: stale ? `${asset.symbol} provider timestamp is stale.` : undefined
       });
     }
 

@@ -34,4 +34,17 @@ describe('CSV import', () => {
     expect(secondPreview.importableRows).toBe(0);
     expect(secondPreview.duplicateRows).toBe(2);
   });
+
+  it('preserves imported notes while neutralizing formulas only on export', async () => {
+    const formulaCsv = csv.split('\n').slice(0, 2).join('\n').replace(',first', ',=2+2');
+    const { exportTransactionsToCsv, importTransactionsFromCsv } =
+      await import('../src/lib/server/csv');
+    const { listTransactions } = await import('../src/lib/server/transactions');
+
+    await importTransactionsFromCsv(formulaCsv, 'formula.csv');
+    const transactions = listTransactions();
+
+    expect(transactions[0].notes).toBe('=2+2');
+    expect(exportTransactionsToCsv(transactions)).toContain("'=2+2");
+  });
 });

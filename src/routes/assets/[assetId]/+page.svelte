@@ -129,7 +129,7 @@
         value={formatCurrency(asset.realizedProfit, currency)}
         kind="fiat"
       />
-      <span class="meta">FIFO disposals</span>
+      <span class="meta">Average-cost disposals</span>
     </article>
   </div>
 
@@ -283,20 +283,20 @@
 
   <section class="card ledger-card">
     <div class="section-head">
-      <h2>Open lots</h2>
-      <span class="muted">{data.openLots.length} lots</span>
+      <h2>Average-cost position</h2>
+      <span class="muted">{data.openLots.length} open position</span>
     </div>
     {#if data.openLots.length === 0}
       <div class="empty-state compact">
-        <p class="muted">No open lots.</p>
+        <p class="muted">No open average-cost position.</p>
       </div>
     {:else}
       <div class="table-wrap mobile-cards">
         <table class="mobile-card-table">
           <thead>
             <tr>
-              <th>Acquired</th>
-              <th>Original qty</th>
+              <th>First acquired</th>
+              <th>Total bought</th>
               <th>Remaining qty</th>
               <th>Unit cost</th>
               <th>Open cost</th>
@@ -306,8 +306,8 @@
           <tbody>
             {#each data.openLots as lot}
               <tr>
-                <td data-label="Acquired">{formatDate(lot.acquiredAt)}</td>
-                <td data-label="Original qty">
+                <td data-label="First acquired">{formatDate(lot.acquiredAt)}</td>
+                <td data-label="Total bought">
                   <PrivacyValue value={formatCrypto(lot.originalQuantity)} kind="quantity" />
                 </td>
                 <td data-label="Remaining qty">
@@ -336,7 +336,7 @@
 
   <section class="card ledger-card">
     <div class="section-head">
-      <h2>Disposals</h2>
+      <h2>Average-cost disposals</h2>
       <span class="muted">{data.disposals.length} rows</span>
     </div>
     {#if data.disposals.length === 0}
@@ -349,19 +349,19 @@
           <thead>
             <tr>
               <th>Disposed</th>
-              <th>Acquired</th>
+              <th>Pool started</th>
               <th>Quantity sold</th>
               <th>Proceeds</th>
               <th>Cost basis</th>
               <th>Realized P/L</th>
-              <th>Lot</th>
+              <th>Position</th>
             </tr>
           </thead>
           <tbody>
             {#each data.disposals as disposal}
               <tr>
                 <td data-label="Disposed">{formatDate(disposal.disposedAt)}</td>
-                <td data-label="Acquired">{formatDate(disposal.acquiredAt)}</td>
+                <td data-label="Pool started">{formatDate(disposal.acquiredAt)}</td>
                 <td data-label="Quantity sold">
                   <PrivacyValue value={formatCrypto(disposal.quantitySold)} kind="quantity" />
                 </td>
@@ -383,7 +383,7 @@
                     kind="fiat"
                   />
                 </td>
-                <td data-label="Lot"><code>{disposal.lotId.slice(0, 8)}</code></td>
+                <td data-label="Position"><code>{disposal.lotId.slice(0, 8)}</code></td>
               </tr>
             {/each}
           </tbody>

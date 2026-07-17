@@ -108,6 +108,8 @@ Chart ranges map to snapshot types as follows:
 
 Duplicate prevention is enforced by a unique SQLite index over snapshot type, base currency, and
 normalized UTC bucket timestamp. Repeated calls for the same hour or day return `already_exists`.
+Failed buckets are excluded from charts and analytics. A later successful run repairs the failed
+row in place, so a temporary provider or FX failure cannot permanently poison that time bucket.
 
 ## V6 News Context Engine
 
@@ -493,6 +495,7 @@ Export transactions from `/api/export?type=transactions` or the Transactions pag
 exports are available at:
 
 - `/api/export?type=open-lots` -> `open-lots.csv`
+- `/api/export?type=average-cost-positions` -> `average-cost-positions.csv`
 - `/api/export?type=realized-pnl` -> `realized-pnl.csv`
 - `/api/export?type=portfolio-snapshots` -> `portfolio-snapshots.csv`
 
@@ -502,30 +505,49 @@ Import expects:
 type,asset_provider,asset_provider_coin_id,asset_symbol,asset_name,quantity,fiat_amount,fiat_currency,fee_amount,fee_currency,transaction_date,notes
 ```
 
-## FIFO Accounting
+Imports are limited to 5 MB and 5,000 rows. CSV formula prefixes in user-controlled text are
+neutralized on export without changing the text stored on import. Transaction rows, their import
+batch, and the rebuilt accounting projection are committed in one SQLite transaction.
 
-V3 uses FIFO tax-lot accounting as the default portfolio accounting method.
+## Average-Cost Accounting
 
-- Each buy creates one `asset_lots` row.
-- Buy fees are added to that lot's cost basis.
-- Each sell consumes the oldest open lots first and creates one or more `lot_disposals` rows.
+The application uses pooled average cost as its sole v1 portfolio accounting method.
+
+- Each buy increases the asset's pooled quantity and cost basis.
+- Buy fees are added to the pooled cost basis.
+- Each sell removes quantity at the average unit cost immediately before the sale.
+- Each sell creates one derived disposal row with proceeds, average-cost basis, and realized P/L.
 - Sell fees reduce sale proceeds before realized P/L is calculated.
 - Sells that exceed available holdings are rejected.
 
-The app stores generated lots and disposals in SQLite. They can be rebuilt from the transaction
-ledger at any time, so manual transactions remain the source of truth.
+For backward-compatible exports and storage, the pooled position currently uses the existing
+`asset_lots` projection table. It contains at most one generated position per asset; it is not a FIFO
+tax lot. All position and disposal rows can be rebuilt from the manual transaction ledger, which
+remains the source of truth.
 
 ## Realized And Unrealized P/L
 
 - Current value = current open quantity x current market price
-- Open cost basis = remaining FIFO lot cost basis
+- Open cost basis = remaining pooled average-cost basis
 - Unrealized P/L = current value - open cost basis
-- Realized P/L = sell proceeds - consumed FIFO lot cost basis
+- Realized P/L = net sell proceeds - quantity sold x average cost before sale
 - Total P/L = realized P/L + unrealized P/L
 - Total ROI = total P/L / total buy cost x 100
 
+Analytics also reports two return measures when the required data is complete:
+
+- Time-weighted return chains snapshot subperiod returns after adjusting each subperiod for manual
+  cash flows. It is snapshot-based, so accuracy improves with uninterrupted daily snapshots.
+- Money-weighted return is annualized XIRR using dated buy costs, net sell proceeds, and current
+  portfolio value.
+
+If a required EUR/USD conversion cannot be fetched or read from cache, the transaction is marked
+incomplete and excluded from financial totals instead of being treated as a false 1:1 conversion.
+The UI labels the resulting value as partial, failed snapshots are not published as usable history,
+and accounting mutations are rejected before transaction and projection data are committed.
+
 The asset detail page shows current holdings, average open cost, current price, current value,
-unrealized P/L, realized P/L, open lots, and disposal history.
+unrealized P/L, realized P/L, the average-cost position, and disposal history.
 
 ## Manual Accounting Rebuild
 
@@ -539,10 +561,15 @@ curl -fsS -X POST http://localhost:5173/api/accounting/rebuild
 For a deployed instance behind Nginx Proxy Manager Basic Auth, call the same endpoint through the
 authenticated proxy URL.
 
+Migration filenames are immutable after deployment. The runner stores a SHA-256 checksum for every
+applied SQL file and refuses to start if a previously recorded migration was changed. Application
+requests are logged as structured JSON with request ID, path, status, and duration; secrets and URL
+credentials are redacted from logged error messages.
+
 ## Known Limitations
 
 - No tax filing logic or country-specific tax advice is provided.
-- FIFO is the default and only lot disposal method in V3.
+- Average cost is the only supported v1 accounting method; FIFO/LIFO are not available.
 - EUR/USD fiat conversion uses cached public FX data when transactions differ from the base currency.
 - No exchange sync, private exchange APIs, trading, withdrawals, or real-time WebSocket pricing.
 - Portfolio history begins when real automatic snapshots are created; past values are not backfilled.

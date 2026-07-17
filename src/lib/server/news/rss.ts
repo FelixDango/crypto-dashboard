@@ -1,5 +1,6 @@
 import type { FetchedArticle, NewsProvider, NewsSource } from './provider';
 import { normalizeArticleUrl } from './provider';
+import { fetchWithResilience, readTextResponse } from '$lib/server/http';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -120,27 +121,23 @@ export class RssNewsProvider implements NewsProvider {
   async fetchSource(source: NewsSource): Promise<FetchedArticle[]> {
     if (source.type !== 'rss') return [];
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    try {
-      const response = await fetch(source.url, {
+    const response = await fetchWithResilience(
+      source.url,
+      {
         headers: {
           accept:
             'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9,*/*;q=0.8',
           'user-agent': 'personal-krypto-dashboard-news-context/1.0'
-        },
-        signal: controller.signal
-      });
+        }
+      },
+      { timeoutMs: this.timeoutMs, maxRetries: 2 }
+    );
 
-      if (!response.ok) {
-        throw new Error(`${source.name} returned HTTP ${response.status}.`);
-      }
-
-      const xml = await response.text();
-      return parseRssFeed(xml, source.name);
-    } finally {
-      clearTimeout(timeout);
+    if (!response.ok) {
+      throw new Error(`${source.name} returned HTTP ${response.status}.`);
     }
+
+    const xml = await readTextResponse(response);
+    return parseRssFeed(xml, source.name);
   }
 }

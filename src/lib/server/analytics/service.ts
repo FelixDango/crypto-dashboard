@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, gte, ne } from 'drizzle-orm';
 import { getAllocationConcentrationWarningPercent } from '$lib/env';
 import {
   ANALYTICS_RANGES,
@@ -11,17 +11,26 @@ import {
   type AnalyticsSeries,
   type AnalyticsSnapshotPoint,
   type AnalyticsSummary,
-  type AssetPriceFreshnessStatus
+  type AssetPriceFreshnessStatus,
+  type PriceHealth
 } from '$lib/analytics/types';
-import type { Currency, HoldingSummary, PortfolioSnapshotType } from '$lib/types';
+import type {
+  Currency,
+  HoldingSummary,
+  NormalizedTransactionRecord,
+  PortfolioOverview,
+  PortfolioSnapshotType
+} from '$lib/types';
 import {
   calculateAllocation,
   calculateConcentration,
   calculateDrawdowns,
   calculateMaxDrawdown,
+  calculateMoneyWeightedReturn,
   calculateMonthlyContributions,
   calculateMonthlyPnl,
-  calculatePeriodChange
+  calculatePeriodChange,
+  calculateTimeWeightedReturn
 } from '$lib/server/analytics/calculations';
 import { getPriceHealth } from '$lib/server/analytics/history-health';
 import { db } from '$lib/server/db/client';
@@ -30,6 +39,7 @@ import { normalizeTransactions } from '$lib/server/fx/cache';
 import { getPortfolioOverview } from '$lib/server/portfolio/service';
 import { getAppSettings } from '$lib/server/settings';
 import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { moneyText } from '$lib/portfolio/decimal';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -40,8 +50,7 @@ function asDecimal(value: string | number | null | undefined): Decimal {
 
 function toText(value: Decimal): string {
   if (!value.isFinite()) return '0';
-  const cleaned = value.abs().lt('0.000000000001') ? new Decimal(0) : value;
-  return cleaned.toDecimalPlaces(12).toString();
+  return moneyText(value);
 }
 
 function twoDigit(value: number): string {
@@ -79,12 +88,18 @@ function snapshotRows(
   const rows = db
     .select()
     .from(portfolioSnapshots)
-    .where(eq(portfolioSnapshots.baseCurrency, baseCurrency))
+    .where(
+      and(
+        eq(portfolioSnapshots.baseCurrency, baseCurrency),
+        ne(portfolioSnapshots.priceStatus, 'failed'),
+        snapshotType ? eq(portfolioSnapshots.snapshotType, snapshotType) : undefined,
+        since ? gte(portfolioSnapshots.bucketAt, since) : undefined
+      )
+    )
     .orderBy(asc(portfolioSnapshots.bucketAt))
-    .all()
-    .filter((row) => !snapshotType || row.snapshotType === snapshotType);
+    .all();
 
-  return since ? rows.filter((row) => row.bucketAt >= since) : rows;
+  return rows;
 }
 
 function pointLabel(row: PortfolioSnapshotRow, range: AnalyticsRange): string {
@@ -116,6 +131,17 @@ function toPoint(row: PortfolioSnapshotRow, range: AnalyticsRange): AnalyticsSna
 
 function hasAnySnapshots(baseCurrency: Currency): boolean {
   return snapshotRows(baseCurrency).length > 0;
+}
+
+function hasStoredSnapshots(baseCurrency: Currency): boolean {
+  return Boolean(
+    db
+      .select({ id: portfolioSnapshots.id })
+      .from(portfolioSnapshots)
+      .where(eq(portfolioSnapshots.baseCurrency, baseCurrency))
+      .limit(1)
+      .get()
+  );
 }
 
 function expectedCoverageComplete(
@@ -224,12 +250,23 @@ export function getAnalyticsSnapshotSeries(
 }
 
 export async function getAnalyticsSummary(
-  options: { baseCurrency?: Currency; now?: Date } = {}
+  options: {
+    baseCurrency?: Currency;
+    now?: Date;
+    overview?: PortfolioOverview;
+    normalizedTransactions?: NormalizedTransactionRecord[];
+  } = {}
 ): Promise<AnalyticsSummary> {
   const settings = getAppSettings();
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
   const generatedAt = (options.now ?? new Date()).toISOString();
-  const overview = await getPortfolioOverview();
+  const overview = options.overview ?? (await getPortfolioOverview());
+  const normalizedTransactions =
+    options.normalizedTransactions ??
+    (await normalizeTransactions(listTransactionsWithAssets(), baseCurrency));
+  const completeTransactions = normalizedTransactions.filter(
+    (transaction) => transaction.fxComplete
+  );
   const historicalRows = snapshotRows(baseCurrency);
   const historicalPoints = historicalRows.map((row) => ({
     value: row.totalValue,
@@ -239,7 +276,9 @@ export async function getAnalyticsSummary(
     value: overview.totals.currentValue,
     bucketAt: generatedAt
   };
-  const allPoints = [...historicalPoints, currentPoint];
+  const allPoints = overview.totals.financialDataComplete
+    ? [...historicalPoints, currentPoint]
+    : historicalPoints;
   const athPoint = allPoints.reduce<typeof currentPoint | null>((best, point) => {
     if (!best || asDecimal(point.value).gt(best.value)) return point;
     return best;
@@ -253,6 +292,17 @@ export async function getAnalyticsSummary(
       return [range.value, calculatePeriodChange(series.points, range.value, range.label, message)];
     })
   ) as AnalyticsSummary['changes'];
+  const returnSnapshots = snapshotRows(baseCurrency, 'daily').map((row) => ({
+    bucketAt: row.bucketAt,
+    capturedAt: row.capturedAt,
+    value: row.totalValue
+  }));
+  const timeWeightedReturnPercent = overview.totals.financialDataComplete
+    ? calculateTimeWeightedReturn(returnSnapshots, completeTransactions)
+    : null;
+  const moneyWeightedReturnPercent = overview.totals.financialDataComplete
+    ? calculateMoneyWeightedReturn(completeTransactions, overview.totals.currentValue, generatedAt)
+    : null;
 
   return {
     currency: overview.totals.baseCurrency,
@@ -265,8 +315,30 @@ export async function getAnalyticsSummary(
     totalInvested: overview.totals.totalBuyCost,
     totalProfit: overview.totals.totalProfit,
     totalRoiPercent: overview.totals.roiPercent,
+    timeWeightedReturnPercent,
+    moneyWeightedReturnPercent,
+    financialDataComplete: overview.totals.financialDataComplete,
+    excludedTransactionCount: overview.totals.excludedTransactionCount,
     changes,
-    messages: historicalRows.length === 0 ? ['No portfolio snapshots exist yet.'] : []
+    messages: [
+      ...(overview.totals.excludedTransactionCount > 0
+        ? [
+            `${overview.totals.excludedTransactionCount} transaction(s) are excluded because FX conversion is unavailable.`
+          ]
+        : []),
+      ...(overview.totals.missingPriceCount > 0
+        ? [
+            `${overview.totals.missingPriceCount} open position(s) are excluded because a market price is unavailable.`
+          ]
+        : []),
+      ...(historicalRows.length === 0
+        ? [
+            hasStoredSnapshots(baseCurrency)
+              ? 'No usable portfolio snapshots exist yet.'
+              : 'No portfolio snapshots exist yet.'
+          ]
+        : [])
+    ]
   };
 }
 
@@ -302,24 +374,30 @@ export function getAnalyticsDrawdown(
 }
 
 export async function getAnalyticsMonthly(
-  options: { baseCurrency?: Currency } = {}
+  options: { baseCurrency?: Currency; normalizedTransactions?: NormalizedTransactionRecord[] } = {}
 ): Promise<AnalyticsMonthlyResponse> {
   const settings = getAppSettings();
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
-  const normalizedTransactions = await normalizeTransactions(
-    listTransactionsWithAssets(),
-    baseCurrency
+  const normalizedTransactions =
+    options.normalizedTransactions ??
+    (await normalizeTransactions(listTransactionsWithAssets(), baseCurrency));
+  const completeTransactions = normalizedTransactions.filter(
+    (transaction) => transaction.fxComplete
   );
-  const contributions = calculateMonthlyContributions(normalizedTransactions);
+  const excludedTransactionCount = normalizedTransactions.length - completeTransactions.length;
+  const contributions = calculateMonthlyContributions(completeTransactions);
   const dailySnapshots = snapshotRows(baseCurrency, 'daily').map((row) => ({
     bucketAt: row.bucketAt,
+    capturedAt: row.capturedAt,
     value: row.totalValue
   }));
 
   return {
     currency: baseCurrency,
     contributions,
-    pnl: calculateMonthlyPnl(dailySnapshots, contributions)
+    pnl: calculateMonthlyPnl(dailySnapshots, completeTransactions),
+    financialDataComplete: excludedTransactionCount === 0,
+    excludedTransactionCount
   };
 }
 
@@ -360,12 +438,16 @@ function coercePriceStatus(value: string): AssetPriceFreshnessStatus {
 }
 
 export async function getAnalyticsAllocation(
-  options: { baseCurrency?: Currency } = {}
+  options: {
+    baseCurrency?: Currency;
+    overview?: PortfolioOverview;
+    priceHealth?: PriceHealth;
+  } = {}
 ): Promise<AnalyticsAllocationResponse> {
   const settings = getAppSettings();
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
-  const overview = await getPortfolioOverview();
-  const priceHealth = await getPriceHealth({ baseCurrency });
+  const overview = options.overview ?? (await getPortfolioOverview());
+  const priceHealth = options.priceHealth ?? (await getPriceHealth({ baseCurrency }));
   const priceStatusByAsset = new Map(
     priceHealth.assets.map((asset) => [asset.assetId, asset.status])
   );

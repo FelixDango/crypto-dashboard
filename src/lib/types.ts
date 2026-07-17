@@ -49,6 +49,8 @@ export type NormalizedTransactionRecord = TransactionRecord & {
   fxSource: string;
   fxDate: string;
   fxCapturedAt: string | null;
+  fxStatus: 'complete' | 'missing';
+  fxComplete: boolean;
   fxWarning?: string;
 };
 
@@ -103,6 +105,9 @@ export type HoldingSummary = {
 
 export type PortfolioTotals = {
   baseCurrency: Currency;
+  accountingMethod: 'average_cost';
+  financialDataComplete: boolean;
+  excludedTransactionCount: number;
   currentValue: string;
   investedAmount: string;
   totalBuyCost: string;

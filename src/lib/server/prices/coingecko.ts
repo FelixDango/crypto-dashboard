@@ -1,5 +1,6 @@
 import type { AssetRecord, Currency } from '$lib/types';
 import type { PriceProvider, ProviderPrice } from './provider';
+import { fetchWithResilience, readJsonResponse } from '$lib/server/http';
 
 const API_BASE = 'https://api.coingecko.com/api/v3';
 
@@ -44,7 +45,7 @@ function providerAsset(coin: {
 }
 
 async function fetchJson<T>(url: URL): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithResilience(url, {
     headers: {
       accept: 'application/json',
       'user-agent': 'personal-krypto-dashboard/0.1'
@@ -55,7 +56,7 @@ async function fetchJson<T>(url: URL): Promise<T> {
     throw new Error(`CoinGecko request failed with ${response.status}.`);
   }
 
-  return (await response.json()) as T;
+  return readJsonResponse<T>(response);
 }
 
 export const coingeckoProvider: PriceProvider = {

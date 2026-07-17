@@ -10,6 +10,8 @@ import { getDataConfidence } from '$lib/server/insights/data-confidence';
 import { getCycleProgress } from '$lib/server/insights/market-cycle';
 import { getAppSettings } from '$lib/server/settings';
 import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { normalizeTransactions } from '$lib/server/fx/cache';
+import { moneyText } from '$lib/portfolio/decimal';
 
 export type ExplainRange = Extract<AnalyticsRange, '24h' | '7d' | '30d'>;
 
@@ -17,7 +19,7 @@ export type ExplainDriverReason = 'price_movement' | 'transaction' | 'allocation
 
 export type ExplainDriver = {
   asset: string;
-  contribution: number;
+  contribution: string;
   reason: ExplainDriverReason;
 };
 
@@ -59,16 +61,26 @@ function topWarnings(warnings: string[]): string[] {
   return warnings.slice(0, 5);
 }
 
-function transactionDrivers(range: ExplainRange, now: Date): ExplainDriver[] {
+async function transactionDrivers(range: ExplainRange, now: Date): Promise<ExplainDriver[]> {
   const start = rangeStart(range, now).toISOString();
+  const settings = getAppSettings();
+  const normalized = await normalizeTransactions(
+    listTransactionsWithAssets(),
+    settings.baseCurrency
+  );
 
-  return listTransactionsWithAssets()
-    .filter((transaction) => transaction.transactionDate >= start)
-    .map((transaction) => ({
-      asset: transaction.assetSymbol,
-      contribution: Number(transaction.fiatAmount) * (transaction.type === 'buy' ? 1 : -1),
-      reason: 'transaction' as const
-    }));
+  return normalized
+    .filter((transaction) => transaction.fxComplete && transaction.transactionDate >= start)
+    .map((transaction) => {
+      const gross = asDecimal(transaction.normalizedFiatAmount);
+      const fee = asDecimal(transaction.normalizedFeeAmount);
+      const amount = transaction.type === 'buy' ? gross.plus(fee) : gross.minus(fee).negated();
+      return {
+        asset: transaction.assetSymbol,
+        contribution: moneyText(amount),
+        reason: 'transaction' as const
+      };
+    });
 }
 
 export async function explainAssetDrivers(
@@ -77,13 +89,14 @@ export async function explainAssetDrivers(
 ): Promise<ExplainResult> {
   const now = options.now ?? new Date();
   const allocation = await getAnalyticsAllocation();
+  const transactions = await transactionDrivers(range, now);
   const allocationDrivers = allocation.assets.map((asset) => ({
     asset: asset.assetSymbol,
-    contribution: Number(asset.totalProfit),
+    contribution: asset.totalProfit,
     reason: asset.priceStatus === 'fresh' ? ('price_movement' as const) : ('data_issue' as const)
   }));
-  const drivers = [...allocationDrivers, ...transactionDrivers(range, now)].sort(
-    (a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)
+  const drivers = [...allocationDrivers, ...transactions].sort((a, b) =>
+    asDecimal(b.contribution).abs().cmp(asDecimal(a.contribution).abs())
   );
   const top = drivers[0];
 
@@ -141,7 +154,7 @@ export async function explainDataHealth(options: ExplainOptions = {}): Promise<E
     warnings: topWarnings(confidence.issues),
     drivers: confidence.issues.map((issue) => ({
       asset: 'Data',
-      contribution: 0,
+      contribution: '0',
       reason: 'data_issue' as const,
       issue
     })) as ExplainDriver[]
@@ -178,7 +191,7 @@ export async function explainRiskState(options: ExplainOptions = {}): Promise<Ex
     warnings,
     drivers: allocation.assets.slice(0, 3).map((asset) => ({
       asset: asset.assetSymbol,
-      contribution: Number(asset.allocationPercent),
+      contribution: asset.allocationPercent,
       reason: 'allocation' as const
     }))
   };
@@ -196,7 +209,7 @@ export async function explainPortfolioMove(
   const dataHealth = await explainDataHealth({ now });
   const cycle = await explainCycleContext({ now });
   const assetDrivers = await explainAssetDrivers(range, { now });
-  const transactionCount = transactionDrivers(range, now).length;
+  const transactionCount = (await transactionDrivers(range, now)).length;
 
   if (!metric.available) {
     return {

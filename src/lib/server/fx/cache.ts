@@ -4,17 +4,21 @@ import { randomUUID } from 'node:crypto';
 import type { Currency, NormalizedTransactionRecord, TransactionRecord } from '$lib/types';
 import { db } from '$lib/server/db/client';
 import { fxRates, type FxRateRow } from '$lib/server/db/schema';
+import { moneyText, rateText } from '$lib/portfolio/decimal';
 import { getFxProvider } from './providers';
 
-export type FxQuote = {
+type FxQuoteBase = {
   from: Currency;
   to: Currency;
-  rate: string;
   source: string;
   rateDate: string;
   capturedAt: string | null;
   warning?: string;
 };
+
+export type FxQuote =
+  | (FxQuoteBase & { status: 'complete'; rate: string })
+  | (FxQuoteBase & { status: 'missing'; rate: null });
 
 function rateDate(value: string): string {
   const parsed = new Date(value);
@@ -24,6 +28,7 @@ function rateDate(value: string): string {
 
 function mapRate(row: FxRateRow, from: Currency, to: Currency): FxQuote {
   return {
+    status: 'complete',
     from,
     to,
     rate: row.rate,
@@ -72,9 +77,10 @@ function cachedRate(
   if (!reverse) return null;
 
   return {
+    status: 'complete',
     from,
     to,
-    rate: new Decimal(1).div(reverse.rate).toDecimalPlaces(18).toString(),
+    rate: rateText(new Decimal(1).div(reverse.rate)),
     source: reverse.provider,
     rateDate: reverse.rateDate,
     capturedAt: reverse.capturedAt
@@ -90,6 +96,7 @@ export async function getFxRateForDate(
   const date = rateDate(dateValue);
   if (from === to) {
     return {
+      status: 'complete',
       from,
       to,
       rate: '1',
@@ -125,6 +132,7 @@ export async function getFxRateForDate(
       .run();
 
     return {
+      status: 'complete',
       from,
       to,
       rate: fetched.rate,
@@ -135,13 +143,14 @@ export async function getFxRateForDate(
   } catch (error) {
     const warning = error instanceof Error ? error.message : 'FX provider failed.';
     return {
+      status: 'missing',
       from,
       to,
-      rate: '1',
+      rate: null,
       source: provider.id,
       rateDate: date,
       capturedAt: null,
-      warning: `${from}/${to} is using an unconverted fallback rate. ${warning}`
+      warning: `${from}/${to} is unavailable. The affected transaction is excluded from financial totals until a rate is available. ${warning}`
     };
   }
 }
@@ -150,35 +159,48 @@ export async function normalizeTransactions(
   transactions: TransactionRecord[],
   baseCurrency: Currency
 ): Promise<NormalizedTransactionRecord[]> {
-  const normalized: NormalizedTransactionRecord[] = [];
+  const requests = new Map<string, Promise<FxQuote>>();
+  const quoteFor = (from: Currency, dateValue: string) => {
+    const key = `${from}:${baseCurrency}:${rateDate(dateValue)}`;
+    let request = requests.get(key);
+    if (!request) {
+      request = getFxRateForDate(from, baseCurrency, dateValue);
+      requests.set(key, request);
+    }
+    return request;
+  };
 
-  for (const transaction of transactions) {
-    const quote = await getFxRateForDate(
-      transaction.fiatCurrency,
-      baseCurrency,
-      transaction.transactionDate
-    );
-    const rate = new Decimal(quote.rate);
-    const normalizedFiatAmount = new Decimal(transaction.fiatAmount).mul(rate);
-    const feeAmount = transaction.feeAmount ? new Decimal(transaction.feeAmount) : new Decimal(0);
-    const feeCurrency = transaction.feeCurrency ?? transaction.fiatCurrency;
-    const feeQuote =
-      feeCurrency === transaction.fiatCurrency
-        ? quote
-        : await getFxRateForDate(feeCurrency, baseCurrency, transaction.transactionDate);
-    const normalizedFeeAmount = feeAmount.mul(feeQuote.rate);
+  return Promise.all(
+    transactions.map(async (transaction) => {
+      const quote = await quoteFor(transaction.fiatCurrency, transaction.transactionDate);
+      const feeAmount = transaction.feeAmount ? new Decimal(transaction.feeAmount) : new Decimal(0);
+      const feeCurrency = transaction.feeCurrency ?? transaction.fiatCurrency;
+      const feeQuote =
+        feeCurrency === transaction.fiatCurrency
+          ? quote
+          : await quoteFor(feeCurrency, transaction.transactionDate);
+      const complete = quote.status === 'complete' && feeQuote.status === 'complete';
+      const normalizedFiatAmount = complete
+        ? new Decimal(transaction.fiatAmount).mul(quote.rate)
+        : new Decimal(0);
+      const normalizedFeeAmount = complete ? feeAmount.mul(feeQuote.rate) : new Decimal(0);
+      const warnings = [quote.warning, feeQuote.warning].filter(
+        (warning, index, values): warning is string =>
+          Boolean(warning) && values.indexOf(warning) === index
+      );
 
-    normalized.push({
-      ...transaction,
-      normalizedFiatAmount: normalizedFiatAmount.toDecimalPlaces(12).toString(),
-      normalizedFeeAmount: normalizedFeeAmount.toDecimalPlaces(12).toString(),
-      fxRate: quote.rate,
-      fxSource: quote.source,
-      fxDate: quote.rateDate,
-      fxCapturedAt: quote.capturedAt,
-      fxWarning: quote.warning ?? feeQuote.warning
-    });
-  }
-
-  return normalized;
+      return {
+        ...transaction,
+        normalizedFiatAmount: moneyText(normalizedFiatAmount),
+        normalizedFeeAmount: moneyText(normalizedFeeAmount),
+        fxRate: quote.rate ?? '',
+        fxSource: quote.source,
+        fxDate: quote.rateDate,
+        fxCapturedAt: quote.capturedAt,
+        fxStatus: complete ? 'complete' : 'missing',
+        fxComplete: complete,
+        fxWarning: warnings.length > 0 ? warnings.join(' ') : undefined
+      } satisfies NormalizedTransactionRecord;
+    })
+  );
 }

@@ -34,7 +34,7 @@ export const SNAPSHOT_RANGES: { value: SnapshotRange; label: string }[] = [
 ];
 
 export type SnapshotCreateResult = {
-  result: 'created' | 'already_exists';
+  result: 'created' | 'already_exists' | 'repaired';
   snapshotType: PortfolioSnapshotType;
   bucket: string;
   snapshot: PortfolioSnapshotRow;
@@ -75,8 +75,10 @@ function activeAssetRecords(holdings: HoldingSummary[]): AssetRecord[] {
 
 function portfolioPriceStatus(
   activeAssets: AssetRecord[],
-  quotes: PriceQuote[]
+  quotes: PriceQuote[],
+  financialDataComplete: boolean
 ): PortfolioSnapshotPriceStatus {
+  if (!financialDataComplete) return 'failed';
   if (activeAssets.length === 0) return 'fresh';
 
   const quoteByAsset = new Map(quotes.map((quote) => [quote.assetId, quote]));
@@ -118,7 +120,7 @@ export async function createPortfolioSnapshot(
   const now = options.now ?? new Date();
   const bucket = normalizeSnapshotBucket(snapshotType, now);
   const existing = snapshotByBucket(snapshotType, settings.baseCurrency, bucket);
-  if (existing) {
+  if (existing && existing.priceStatus !== 'failed') {
     return { result: 'already_exists', snapshotType, bucket, snapshot: existing };
   }
 
@@ -133,6 +135,11 @@ export async function createPortfolioSnapshot(
   );
   const calculated = calculatePortfolio(normalizedTransactions, quotes, settings.baseCurrency);
   const capturedAt = now.toISOString();
+  const priceStatus = portfolioPriceStatus(
+    priceAssets,
+    quotes,
+    calculated.totals.financialDataComplete
+  );
   const row = {
     id: randomUUID(),
     snapshotType,
@@ -144,10 +151,28 @@ export async function createPortfolioSnapshot(
     roiPercent: calculated.totals.roiPercent,
     holdingsJson: JSON.stringify(calculated.holdings),
     pricesJson: JSON.stringify(quotes),
-    priceStatus: portfolioPriceStatus(priceAssets, quotes),
+    priceStatus,
     capturedAt,
     createdAt: capturedAt
   };
+
+  if (existing) {
+    if (priceStatus === 'failed') {
+      return { result: 'already_exists', snapshotType, bucket, snapshot: existing };
+    }
+
+    db.update(portfolioSnapshots)
+      .set({
+        ...row,
+        id: existing.id,
+        createdAt: existing.createdAt
+      })
+      .where(eq(portfolioSnapshots.id, existing.id))
+      .run();
+    const repaired = snapshotByBucket(snapshotType, settings.baseCurrency, bucket);
+    if (!repaired) throw new Error('Failed to repair portfolio snapshot.');
+    return { result: 'repaired', snapshotType, bucket, snapshot: repaired };
+  }
 
   db.insert(portfolioSnapshots)
     .values(row)
@@ -172,14 +197,12 @@ export async function createPortfolioSnapshot(
 }
 
 export function hasPortfolioSnapshots(baseCurrency: Currency): boolean {
-  return Boolean(
-    db
-      .select({ id: portfolioSnapshots.id })
-      .from(portfolioSnapshots)
-      .where(eq(portfolioSnapshots.baseCurrency, baseCurrency))
-      .limit(1)
-      .get()
-  );
+  return db
+    .select({ priceStatus: portfolioSnapshots.priceStatus })
+    .from(portfolioSnapshots)
+    .where(eq(portfolioSnapshots.baseCurrency, baseCurrency))
+    .all()
+    .some((row) => row.priceStatus !== 'failed');
 }
 
 export async function ensureInitialPortfolioSnapshot(): Promise<SnapshotCreateResult | null> {
@@ -224,7 +247,8 @@ function snapshotRows(
     .orderBy(asc(portfolioSnapshots.bucketAt))
     .all();
 
-  return since ? rows.filter((row) => row.bucketAt >= since) : rows;
+  const usableRows = rows.filter((row) => row.priceStatus !== 'failed');
+  return since ? usableRows.filter((row) => row.bucketAt >= since) : usableRows;
 }
 
 function pointLabel(row: PortfolioSnapshotRow, range: SnapshotRange): string {

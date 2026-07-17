@@ -127,7 +127,7 @@
   <div class="page-header">
     <div class="page-title">
       <h1>Dashboard</h1>
-      <p class="muted">FIFO portfolio view in {currency}</p>
+      <p class="muted">Average-cost portfolio view in {currency}</p>
     </div>
     <div class="toolbar">
       <button class="btn" type="button" on:click={refreshPrices} disabled={refreshing}>
@@ -152,18 +152,30 @@
     </div>
   {/if}
 
-  <CycleCard progress={data.cycle} compact />
-
   <div class="grid metric-grid dashboard-metrics">
     <article class="card metric-card">
-      <span class="label">Portfolio value</span>
+      <span class="label">
+        {overview.totals.financialDataComplete ? 'Portfolio value' : 'Partial portfolio value'}
+      </span>
       <PrivacyValue
         className="value"
         value={formatCurrency(overview.totals.currentValue, currency)}
         kind="fiat"
       />
       <span class="meta">
-        {overview.totals.stalePriceCount} stale / {overview.totals.missingPriceCount} missing
+        {#if overview.totals.financialDataComplete}
+          {overview.totals.stalePriceCount} stale / {overview.totals.missingPriceCount} missing
+        {:else}
+          {#if overview.totals.excludedTransactionCount > 0}
+            {overview.totals.excludedTransactionCount} transaction(s) excluded by missing FX
+          {/if}
+          {#if overview.totals.excludedTransactionCount > 0 && overview.totals.missingPriceCount > 0}
+            ·
+          {/if}
+          {#if overview.totals.missingPriceCount > 0}
+            {overview.totals.missingPriceCount} open position price(s) missing
+          {/if}
+        {/if}
       </span>
     </article>
     <article class="card metric-card">
@@ -173,7 +185,7 @@
         value={formatCurrency(overview.totals.investedAmount, currency)}
         kind="fiat"
       />
-      <span class="meta">Remaining FIFO lots</span>
+      <span class="meta">Pooled average-cost position</span>
     </article>
     <article class="card metric-card">
       <span class="label">Unrealized P/L</span>
@@ -195,7 +207,7 @@
         value={formatCurrency(overview.totals.realizedProfit, currency)}
         kind="fiat"
       />
-      <span class="meta">Closed FIFO disposals</span>
+      <span class="meta">Average-cost disposals</span>
     </article>
     <article class="card metric-card">
       <span class="label">Total P/L</span>
@@ -218,6 +230,8 @@
       <span class="meta">{overview.totals.fxWarningCount} FX warnings</span>
     </article>
   </div>
+
+  <CycleCard progress={data.cycle} compact />
 
   <div class="grid two-column dashboard-main">
     <section class="card">
@@ -327,7 +341,7 @@
         value={formatCurrency(overview.totals.realizedProfit, currency)}
         kind="fiat"
       />
-      <span class="muted">FIFO disposals</span>
+      <span class="muted">Average-cost disposals</span>
     </section>
 
     <section class="card performer">
@@ -450,7 +464,7 @@
     font-weight: 700;
   }
 
-  @media (max-width: 1180px) {
+  @media (max-width: 1400px) {
     .dashboard-metrics {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }

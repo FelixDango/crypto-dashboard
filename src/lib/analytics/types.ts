@@ -67,6 +67,10 @@ export type AnalyticsSummary = {
   totalInvested: string;
   totalProfit: string;
   totalRoiPercent: string;
+  timeWeightedReturnPercent: string | null;
+  moneyWeightedReturnPercent: string | null;
+  financialDataComplete: boolean;
+  excludedTransactionCount: number;
   changes: Record<AnalyticsRange, AnalyticsChangeMetric>;
   messages: string[];
 };
@@ -110,6 +114,8 @@ export type AnalyticsMonthlyResponse = {
   currency: Currency;
   contributions: MonthlyContribution[];
   pnl: MonthlyPnl[];
+  financialDataComplete: boolean;
+  excludedTransactionCount: number;
 };
 
 export type AllocationAsset = {

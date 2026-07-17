@@ -89,6 +89,9 @@ export const actions = {
     if (!(file instanceof File)) {
       return fail(400, { error: 'CSV file is required.', intent: 'previewCsv' });
     }
+    if (file.size > 5 * 1024 * 1024) {
+      return fail(400, { error: 'CSV import is limited to 5 MB.', intent: 'previewCsv' });
+    }
 
     try {
       const csvContent = await file.text();
@@ -113,6 +116,9 @@ export const actions = {
 
     if (!content && !(file instanceof File)) {
       return fail(400, { error: 'CSV file is required.', intent: 'importCsv' });
+    }
+    if (file instanceof File && file.size > 5 * 1024 * 1024) {
+      return fail(400, { error: 'CSV import is limited to 5 MB.', intent: 'importCsv' });
     }
 
     try {

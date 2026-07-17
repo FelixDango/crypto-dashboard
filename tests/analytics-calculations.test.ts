@@ -4,10 +4,12 @@ import {
   calculateConcentration,
   calculateDrawdowns,
   calculateMaxDrawdown,
+  calculateMoneyWeightedReturn,
   calculateMonthlyContributions,
   calculateMonthlyPnl,
   calculatePeriodChange,
-  calculateRunningAth
+  calculateRunningAth,
+  calculateTimeWeightedReturn
 } from '$lib/server/analytics/calculations';
 
 describe('analytics calculations', () => {
@@ -87,11 +89,9 @@ describe('analytics calculations', () => {
       ],
       [
         {
-          month: '2026-01',
-          label: 'Jan 2026',
-          monthlyBuyCost: '100',
-          monthlySellProceeds: '0',
-          netContribution: '100'
+          type: 'buy',
+          fiatAmount: '100',
+          transactionDate: '2026-01-05T12:00:00.000Z'
         }
       ]
     );
@@ -108,16 +108,75 @@ describe('analytics calculations', () => {
       ],
       [
         {
-          month: '2026-02',
-          label: 'Feb 2026',
-          monthlyBuyCost: '0',
-          monthlySellProceeds: '100',
-          netContribution: '-100'
+          type: 'sell',
+          fiatAmount: '100',
+          transactionDate: '2026-02-15T12:00:00.000Z'
         }
       ]
     );
 
     expect(pnl[0].monthlyPnl).toBe('-100');
+  });
+
+  it('does not subtract a contribution already included in the baseline snapshot', () => {
+    const pnl = calculateMonthlyPnl(
+      [
+        {
+          bucketAt: '2026-01-01T00:00:00.000Z',
+          capturedAt: '2026-01-01T14:00:00.000Z',
+          value: '1100'
+        },
+        {
+          bucketAt: '2026-01-31T00:00:00.000Z',
+          capturedAt: '2026-01-31T23:00:00.000Z',
+          value: '1200'
+        }
+      ],
+      [
+        {
+          type: 'buy',
+          fiatAmount: '100',
+          transactionDate: '2026-01-01T12:00:00.000Z'
+        }
+      ]
+    );
+
+    expect(pnl[0].netContribution).toBe('0');
+    expect(pnl[0].monthlyPnl).toBe('100');
+  });
+
+  it('calculates cash-flow-adjusted time-weighted return', () => {
+    const result = calculateTimeWeightedReturn(
+      [
+        { bucketAt: '2026-01-01T00:00:00.000Z', value: '100' },
+        { bucketAt: '2026-02-01T00:00:00.000Z', value: '165' }
+      ],
+      [
+        {
+          type: 'buy',
+          fiatAmount: '50',
+          transactionDate: '2026-01-15T12:00:00.000Z'
+        }
+      ]
+    );
+
+    expect(result).toBe('15');
+  });
+
+  it('calculates annualized money-weighted return from dated cash flows', () => {
+    const result = calculateMoneyWeightedReturn(
+      [
+        {
+          type: 'buy',
+          fiatAmount: '100',
+          transactionDate: '2025-01-01T00:00:00.000Z'
+        }
+      ],
+      '110',
+      '2026-01-01T05:49:12.000Z'
+    );
+
+    expect(Number(result)).toBeCloseTo(10, 8);
   });
 
   it('calculates allocation percentage and concentration score', () => {
@@ -158,6 +217,8 @@ describe('analytics calculations', () => {
 
     expect(allocation[0].allocationPercent).toBe('70');
     expect(allocation[0].allocationDriftPercent).toBe('20');
+    expect(allocation[1].baselineAllocationPercent).toBe('0');
+    expect(allocation[1].allocationDriftPercent).toBe('30');
     expect(concentration.topAssetWeightPercent).toBe('70');
     expect(concentration.status).toBe('warning');
   });

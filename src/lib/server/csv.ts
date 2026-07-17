@@ -6,8 +6,14 @@ import type { Currency, TransactionRecord } from '$lib/types';
 import { transactionInputSchema } from '$lib/validation/transaction';
 import { db, getSqlite } from './db/client';
 import { importBatches, portfolioSnapshots, transactions } from './db/schema';
-import { listLotDisposals, listOpenLots, rebuildPortfolioAccounting } from './portfolio/accounting';
-import { createTransactionWithoutAccounting } from './transactions';
+import {
+  listAverageCostDisposals,
+  listAverageCostPositions,
+  preparePortfolioAccounting,
+  replacePortfolioAccounting
+} from './portfolio/accounting';
+import { listTransactionsWithAssets, prepareTransactionForPersistence } from './transactions';
+import { serializePortfolioMutation } from './portfolio/mutation';
 
 const headers = [
   'type',
@@ -25,6 +31,7 @@ const headers = [
 ];
 
 const openLotHeaders = [
+  'accounting_method',
   'lot_id',
   'asset_id',
   'asset_symbol',
@@ -41,6 +48,7 @@ const openLotHeaders = [
 ];
 
 const realizedPnlHeaders = [
+  'accounting_method',
   'disposal_id',
   'sell_transaction_id',
   'lot_id',
@@ -73,9 +81,15 @@ const snapshotHeaders = [
   'prices_json'
 ];
 
-function safeCell(value: string | null | undefined): string {
+const MAX_CSV_BYTES = 5 * 1024 * 1024;
+
+function exportCell(value: string | null | undefined): string {
   const cleaned = (value ?? '').replace(/\0/g, '').slice(0, 1000);
-  return /^[=+\-@]/.test(cleaned) ? `'${cleaned}` : cleaned;
+  return /^[\t\r ]*[=+\-@]/.test(cleaned) ? `'${cleaned}` : cleaned;
+}
+
+function importCell(value: string | null | undefined): string {
+  return (value ?? '').replace(/\0/g, '');
 }
 
 type ParsedCsvRow = {
@@ -133,6 +147,9 @@ function rowIsDuplicate(hash: string): boolean {
 }
 
 function parseTransactionsCsv(content: string): ParsedCsvRow[] {
+  if (Buffer.byteLength(content, 'utf8') > MAX_CSV_BYTES) {
+    throw new Error('CSV import is limited to 5 MB.');
+  }
   const rows = parse(content, {
     columns: true,
     skip_empty_lines: true,
@@ -148,10 +165,10 @@ function parseTransactionsCsv(content: string): ParsedCsvRow[] {
   return rows.map((row, index) => {
     const input = transactionInputSchema.parse({
       asset: {
-        provider: safeCell(row.asset_provider || 'coingecko'),
-        providerCoinId: safeCell(row.asset_provider_coin_id),
-        symbol: safeCell(row.asset_symbol),
-        name: safeCell(row.asset_name),
+        provider: importCell(row.asset_provider || 'coingecko'),
+        providerCoinId: importCell(row.asset_provider_coin_id),
+        symbol: importCell(row.asset_symbol),
+        name: importCell(row.asset_name),
         imageUrl: ''
       },
       type: row.type,
@@ -161,7 +178,7 @@ function parseTransactionsCsv(content: string): ParsedCsvRow[] {
       feeAmount: row.fee_amount || null,
       feeCurrency: row.fee_currency || row.fiat_currency,
       transactionDate: row.transaction_date,
-      notes: safeCell(row.notes)
+      notes: importCell(row.notes)
     });
 
     return {
@@ -177,26 +194,27 @@ export function exportTransactionsToCsv(transactions: TransactionRecord[]): stri
     type: transaction.type,
     asset_provider: transaction.assetId.split(':')[0] ?? 'coingecko',
     asset_provider_coin_id: transaction.assetId.split(':').slice(1).join(':'),
-    asset_symbol: safeCell(transaction.assetSymbol),
-    asset_name: safeCell(transaction.assetName),
+    asset_symbol: exportCell(transaction.assetSymbol),
+    asset_name: exportCell(transaction.assetName),
     quantity: transaction.quantity,
     fiat_amount: transaction.fiatAmount,
     fiat_currency: transaction.fiatCurrency,
     fee_amount: transaction.feeAmount ?? '',
     fee_currency: transaction.feeCurrency ?? '',
     transaction_date: transaction.transactionDate,
-    notes: safeCell(transaction.notes)
+    notes: exportCell(transaction.notes)
   }));
 
   return stringify(records, { header: true, columns: headers });
 }
 
 export function exportOpenLotsToCsv(): string {
-  const records = listOpenLots().map((lot) => ({
+  const records = listAverageCostPositions().map((lot) => ({
+    accounting_method: 'average_cost',
     lot_id: lot.id,
     asset_id: lot.assetId,
-    asset_symbol: safeCell(lot.assetSymbol),
-    asset_name: safeCell(lot.assetName),
+    asset_symbol: exportCell(lot.assetSymbol),
+    asset_name: exportCell(lot.assetName),
     source_transaction_id: lot.sourceTransactionId,
     original_quantity: lot.originalQuantity,
     remaining_quantity: lot.remainingQuantity,
@@ -212,13 +230,14 @@ export function exportOpenLotsToCsv(): string {
 }
 
 export function exportRealizedPnlToCsv(): string {
-  const records = listLotDisposals().map((disposal) => ({
+  const records = listAverageCostDisposals().map((disposal) => ({
+    accounting_method: 'average_cost',
     disposal_id: disposal.id,
     sell_transaction_id: disposal.sellTransactionId,
     lot_id: disposal.lotId,
     asset_id: disposal.assetId,
-    asset_symbol: safeCell(disposal.assetSymbol),
-    asset_name: safeCell(disposal.assetName),
+    asset_symbol: exportCell(disposal.assetSymbol),
+    asset_name: exportCell(disposal.assetName),
     quantity_sold: disposal.quantitySold,
     proceeds_amount: disposal.proceedsAmount,
     cost_basis_amount: disposal.costBasisAmount,
@@ -249,8 +268,8 @@ export function exportPortfolioSnapshotsToCsv(): string {
       price_status: snapshot.priceStatus,
       captured_at: snapshot.capturedAt,
       created_at: snapshot.createdAt,
-      holdings_json: safeCell(snapshot.holdingsJson),
-      prices_json: safeCell(snapshot.pricesJson)
+      holdings_json: snapshot.holdingsJson,
+      prices_json: snapshot.pricesJson
     }));
 
   return stringify(records, { header: true, columns: snapshotHeaders });
@@ -291,39 +310,51 @@ export async function importTransactionsFromCsv(
   content: string,
   filename: string | null = null
 ): Promise<{ imported: number; duplicates: number; batchId: string }> {
-  const parsed = parseTransactionsCsv(content);
-  const seen = new Set<string>();
-  const importable = parsed.filter((row) => {
-    const duplicate = seen.has(row.hash) || rowIsDuplicate(row.hash);
-    seen.add(row.hash);
-    return !duplicate;
+  return serializePortfolioMutation(async () => {
+    const parsed = parseTransactionsCsv(content);
+    const seen = new Set<string>();
+    const importable = parsed.filter((row) => {
+      const duplicate = seen.has(row.hash) || rowIsDuplicate(row.hash);
+      seen.add(row.hash);
+      return !duplicate;
+    });
+    const duplicates = parsed.length - importable.length;
+    const batchId = randomUUID();
+    const prepared = importable.map((row) =>
+      prepareTransactionForPersistence(
+        {
+          ...row.input,
+          importBatchId: batchId,
+          rowHash: row.hash
+        },
+        false
+      )
+    );
+    const plan = await preparePortfolioAccounting([
+      ...listTransactionsWithAssets(),
+      ...prepared.map((item) => item.record)
+    ]);
+
+    getSqlite().transaction(() => {
+      db.insert(importBatches)
+        .values({
+          id: batchId,
+          filename,
+          totalRows: parsed.length,
+          importedRows: importable.length,
+          duplicateRows: duplicates,
+          status: 'complete',
+          createdAt: new Date().toISOString()
+        })
+        .run();
+      if (prepared.length > 0) {
+        db.insert(transactions)
+          .values(prepared.map((item) => item.row))
+          .run();
+      }
+      replacePortfolioAccounting(plan);
+    })();
+
+    return { imported: importable.length, duplicates, batchId };
   });
-  const duplicates = parsed.length - importable.length;
-  const batchId = randomUUID();
-
-  getSqlite().transaction(() => {
-    db.insert(importBatches)
-      .values({
-        id: batchId,
-        filename,
-        totalRows: parsed.length,
-        importedRows: importable.length,
-        duplicateRows: duplicates,
-        status: 'complete',
-        createdAt: new Date().toISOString()
-      })
-      .run();
-
-    for (const row of importable) {
-      createTransactionWithoutAccounting({
-        ...row.input,
-        importBatchId: batchId,
-        rowHash: row.hash
-      });
-    }
-  })();
-
-  await rebuildPortfolioAccounting();
-
-  return { imported: importable.length, duplicates, batchId };
 }

@@ -55,6 +55,10 @@ export const transactions = sqliteTable(
   },
   (table) => ({
     assetDateIndex: index('transactions_asset_date_idx').on(table.assetId, table.transactionDate),
+    dateCreatedIndex: index('transactions_date_created_idx').on(
+      table.transactionDate,
+      table.createdAt
+    ),
     typeIndex: index('transactions_type_idx').on(table.type),
     rowHashUnique: uniqueIndex('transactions_row_hash_unique').on(table.rowHash)
   })
@@ -85,6 +89,10 @@ export const priceSnapshots = sqliteTable(
   (table) => ({
     assetCurrencyCapturedIndex: index('price_snapshots_asset_currency_captured_idx').on(
       table.assetId,
+      table.fiatCurrency,
+      table.capturedAt
+    ),
+    currencyCapturedIndex: index('price_snapshots_currency_captured_idx').on(
       table.fiatCurrency,
       table.capturedAt
     )
@@ -143,6 +151,10 @@ export const priceUpdateEvents = sqliteTable(
     ),
     statusCheckedIndex: index('price_update_events_status_checked_idx').on(
       table.status,
+      table.checkedAt
+    ),
+    currencyCheckedIndex: index('price_update_events_currency_checked_idx').on(
+      table.fiatCurrency,
       table.checkedAt
     )
   })

@@ -1,5 +1,6 @@
 import type { Currency } from '$lib/types';
 import type { FxProvider, FxProviderRate } from './provider';
+import { fetchWithResilience, readJsonResponse } from '$lib/server/http';
 
 const API_BASE = 'https://api.frankfurter.app';
 
@@ -9,7 +10,7 @@ type FrankfurterResponse = {
 };
 
 async function fetchJson<T>(url: URL): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithResilience(url, {
     headers: {
       accept: 'application/json',
       'user-agent': 'personal-krypto-dashboard/0.2'
@@ -20,7 +21,7 @@ async function fetchJson<T>(url: URL): Promise<T> {
     throw new Error(`FX request failed with ${response.status}.`);
   }
 
-  return (await response.json()) as T;
+  return readJsonResponse<T>(response);
 }
 
 export const frankfurterProvider: FxProvider = {
