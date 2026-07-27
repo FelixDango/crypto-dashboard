@@ -14,12 +14,33 @@ function isDecimal(value: string): boolean {
   }
 }
 
-const positiveDecimal = z
-  .string()
-  .trim()
-  .min(1)
-  .refine(isDecimal, 'Must be a valid decimal number.')
-  .refine((value) => new Decimal(value).gt(0), 'Must be greater than zero.');
+function isPositiveDecimal(value: string): boolean {
+  try {
+    return new Decimal(value).gt(0);
+  } catch {
+    return false;
+  }
+}
+
+function isNonNegativeDecimal(value: string): boolean {
+  try {
+    return new Decimal(value).gte(0);
+  } catch {
+    return false;
+  }
+}
+
+function positiveDecimal(label: string) {
+  return z
+    .string({ required_error: `${label} is required.` })
+    .trim()
+    .min(1, `${label} is required.`)
+    .refine(isDecimal, `${label} must be a valid decimal number.`)
+    .refine(
+      (value) => !isDecimal(value) || isPositiveDecimal(value),
+      `${label} must be greater than zero.`
+    );
+}
 
 const optionalFee = z
   .string()
@@ -28,7 +49,10 @@ const optionalFee = z
   .nullable()
   .transform((value) => (value ? value : null))
   .refine((value) => value === null || isDecimal(value), 'Fee must be a valid decimal number.')
-  .refine((value) => value === null || new Decimal(value).gte(0), 'Fee cannot be negative.');
+  .refine(
+    (value) => value === null || !isDecimal(value) || isNonNegativeDecimal(value),
+    'Fee cannot be negative.'
+  );
 
 function normalizeDate(value: string, context: z.RefinementCtx): string {
   const cleaned = value.trim();
@@ -53,14 +77,22 @@ function cleanText(value: unknown, maxLength: number): string | null {
 export const transactionInputSchema = z.object({
   asset: z.object({
     provider: z.string().trim().default('coingecko'),
-    providerCoinId: z.string().trim().min(1).max(120),
-    symbol: z
-      .string()
+    providerCoinId: z
+      .string({ required_error: 'Select a coin from the search results.' })
       .trim()
-      .min(1)
-      .max(20)
+      .min(1, 'Select a coin from the search results.')
+      .max(120, 'Selected coin id is too long.'),
+    symbol: z
+      .string({ required_error: 'Selected coin details are incomplete.' })
+      .trim()
+      .min(1, 'Selected coin details are incomplete.')
+      .max(20, 'Selected coin symbol is too long.')
       .transform((value) => value.toUpperCase()),
-    name: z.string().trim().min(1).max(120),
+    name: z
+      .string({ required_error: 'Selected coin details are incomplete.' })
+      .trim()
+      .min(1, 'Selected coin details are incomplete.')
+      .max(120, 'Selected coin name is too long.'),
     imageUrl: z
       .string()
       .trim()
@@ -70,12 +102,15 @@ export const transactionInputSchema = z.object({
       .transform((value) => value || null)
   }),
   type: z.enum(['buy', 'sell']),
-  quantity: positiveDecimal,
-  fiatAmount: positiveDecimal,
+  quantity: positiveDecimal('Quantity'),
+  fiatAmount: positiveDecimal('Fiat amount'),
   fiatCurrency: z.enum(currencies),
   feeAmount: optionalFee,
   feeCurrency: z.enum(currencies).nullable().optional(),
-  transactionDate: z.string().min(1).transform(normalizeDate),
+  transactionDate: z
+    .string({ required_error: 'Transaction date is required.' })
+    .min(1, 'Transaction date is required.')
+    .transform(normalizeDate),
   notes: z
     .string()
     .optional()

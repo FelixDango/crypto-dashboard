@@ -1,13 +1,16 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { replaceState } from '$app/navigation';
+  import { page } from '$app/stores';
   import type { SubmitFunction } from '@sveltejs/kit';
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Decimal from 'decimal.js';
   import { Download, Pencil, Plus, Search, Trash2, TriangleAlert, Upload, X } from '@lucide/svelte';
   import AssetSearch from '$lib/components/AssetSearch.svelte';
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import { formatCurrency, formatCrypto, formatDate } from '$lib/format';
+  import { calculateTransactionPreview } from '$lib/portfolio/transactionPreview';
   import type { TransactionRecord } from '$lib/types';
 
   type AssetChoice = {
@@ -67,6 +70,7 @@
   let addFeeAmount = '';
   let addFeeCurrency: 'EUR' | 'USD' = data.settings.baseCurrency;
   let returnFocus: HTMLElement | null = null;
+  let submittingIntent: string | null = null;
 
   $: filtered = data.transactions.filter((transaction) => {
     const text =
@@ -84,23 +88,56 @@
     balances.set(transaction.assetId, next);
     return balances;
   }, new Map<string, Decimal>());
-  $: addUnitCost = unitCost(addQuantity, addFiatAmount, addFeeAmount);
+  $: addPreview = calculateTransactionPreview(addType, addQuantity, addFiatAmount, addFeeAmount);
   $: sellWarning = sellQuantityWarning();
   $: successMessage = form?.success ? successCopy(form) : null;
   $: importPreview = form?.intent === 'previewCsv' ? form.preview : null;
   $: previewRows = importPreview?.rows.slice(0, 8) ?? [];
+  $: addError = errorFor(form, ['create']);
+  $: editError = errorFor(form, ['update']);
+  $: deleteError = errorFor(form, ['delete']);
+  $: importError = errorFor(form, ['previewCsv', 'importCsv']);
+  $: errorHandledInDialog = Boolean(
+    (showAdd && addError) ||
+    (editing && editError) ||
+    (deleting && deleteError) ||
+    (showImport && importError)
+  );
 
-  function closeOnSuccess(close: () => void): SubmitFunction {
+  onMount(() => {
+    if ($page.url.searchParams.get('new') !== '1') return;
+
+    const nextUrl = new URL($page.url);
+    nextUrl.searchParams.delete('new');
+    replaceState(nextUrl, $page.state);
+    void openAdd();
+  });
+
+  function submitAction(intent: string, close?: () => void): SubmitFunction {
     return () => {
+      submittingIntent = intent;
       return async ({ result, update }) => {
-        await update();
-        if (result.type === 'success') close();
+        try {
+          await update();
+          if (result.type === 'success') close?.();
+        } finally {
+          submittingIntent = null;
+        }
       };
     };
   }
 
   function defaultDate() {
-    return new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+  }
+
+  function errorFor(result: typeof form, intents: string[]): string | null {
+    return result?.error && result.intent && intents.includes(result.intent) ? result.error : null;
+  }
+
+  function clearDialogError(...intents: string[]) {
+    if (form?.error && form.intent && intents.includes(form.intent)) form = null;
   }
 
   function rememberFocus() {
@@ -152,21 +189,25 @@
 
   function closeAdd() {
     showAdd = false;
+    clearDialogError('create');
     void restoreFocus();
   }
 
   function closeImport() {
     showImport = false;
+    clearDialogError('previewCsv', 'importCsv');
     void restoreFocus();
   }
 
   function closeEdit() {
     editing = null;
+    clearDialogError('update');
     void restoreFocus();
   }
 
   function closeDelete() {
     deleting = null;
+    clearDialogError('delete');
     void restoreFocus();
   }
 
@@ -206,14 +247,6 @@
     } catch {
       return null;
     }
-  }
-
-  function unitCost(quantityValue: string, fiatValue: string, feeValue: string): string | null {
-    const quantity = decimalValue(quantityValue);
-    const fiat = decimalValue(fiatValue);
-    const fee = decimalValue(feeValue) ?? new Decimal(0);
-    if (!quantity || !fiat || quantity.lte(0)) return null;
-    return fiat.plus(fee).div(quantity).toDecimalPlaces(8).toString();
   }
 
   function sellQuantityWarning(): string | null {
@@ -260,12 +293,12 @@
     </div>
   </div>
 
-  {#if form?.error}
-    <div class="notice">{form.error}</div>
+  {#if form?.error && !errorHandledInDialog}
+    <div class="notice" role="alert">{form.error}</div>
   {/if}
 
   {#if successMessage}
-    <div class="notice success">{successMessage}</div>
+    <div class="notice success" role="status" aria-live="polite">{successMessage}</div>
   {/if}
 
   <section class="card controls">
@@ -389,6 +422,7 @@
       tabindex="-1"
       aria-modal="true"
       aria-labelledby="add-title"
+      aria-describedby={addError ? 'add-error' : undefined}
       on:keydown={(event) => handleDialogKeydown(event, closeAdd)}
     >
       <div class="modal-header">
@@ -400,7 +434,10 @@
           on:click={closeAdd}><X size={17} /></button
         >
       </div>
-      <form method="POST" action="?/create" use:enhance={closeOnSuccess(closeAdd)}>
+      {#if addError}
+        <div class="notice modal-notice" id="add-error" role="alert">{addError}</div>
+      {/if}
+      <form method="POST" action="?/create" use:enhance={submitAction('create', closeAdd)}>
         <div class="field-grid">
           <div class="field full">
             <AssetSearch
@@ -457,15 +494,18 @@
               <option value="USD">USD</option>
             </select>
           </div>
-          {#if addUnitCost || sellWarning}
+          {#if addPreview || sellWarning}
             <div class="field full entry-preview" class:warning={Boolean(sellWarning)}>
               {#if sellWarning}
                 <TriangleAlert size={16} />
                 <span>{sellWarning}</span>
-              {:else if addUnitCost}
-                <span>Unit cost preview</span>
+              {:else if addPreview}
+                <span>{addPreview.label}</span>
                 <strong>
-                  <PrivacyValue value={formatCurrency(addUnitCost, addFiatCurrency)} kind="fiat" />
+                  <PrivacyValue
+                    value={formatCurrency(addPreview.value, addFiatCurrency)}
+                    kind="fiat"
+                  />
                 </strong>
               {/if}
             </div>
@@ -477,7 +517,9 @@
         </div>
         <div class="modal-actions">
           <button class="btn" type="button" on:click={closeAdd}>Cancel</button>
-          <button class="btn primary" type="submit">Save</button>
+          <button class="btn primary" type="submit" disabled={submittingIntent === 'create'}>
+            {submittingIntent === 'create' ? 'Saving...' : 'Save'}
+          </button>
         </div>
       </form>
     </div>
@@ -492,6 +534,7 @@
       tabindex="-1"
       aria-modal="true"
       aria-labelledby="edit-title"
+      aria-describedby={editError ? 'edit-error' : undefined}
       on:keydown={(event) => handleDialogKeydown(event, closeEdit)}
     >
       <div class="modal-header">
@@ -503,7 +546,10 @@
           on:click={closeEdit}><X size={17} /></button
         >
       </div>
-      <form method="POST" action="?/update" use:enhance={closeOnSuccess(closeEdit)}>
+      {#if editError}
+        <div class="notice modal-notice" id="edit-error" role="alert">{editError}</div>
+      {/if}
+      <form method="POST" action="?/update" use:enhance={submitAction('update', closeEdit)}>
         <input type="hidden" name="id" value={editing.id} />
         <div class="field-grid">
           <div class="field full">
@@ -587,7 +633,9 @@
         </div>
         <div class="modal-actions">
           <button class="btn" type="button" on:click={closeEdit}>Cancel</button>
-          <button class="btn primary" type="submit">Update</button>
+          <button class="btn primary" type="submit" disabled={submittingIntent === 'update'}>
+            {submittingIntent === 'update' ? 'Updating...' : 'Update'}
+          </button>
         </div>
       </form>
     </div>
@@ -618,11 +666,21 @@
         Delete {deleting.assetSymbol}
         {deleting.type} from {formatDate(deleting.transactionDate)}?
       </p>
-      <form method="POST" action="?/delete" use:enhance={closeOnSuccess(closeDelete)}>
+      {#if deleteError}
+        <div class="notice modal-notice" role="alert">{deleteError}</div>
+      {/if}
+      <form method="POST" action="?/delete" use:enhance={submitAction('delete', closeDelete)}>
         <input type="hidden" name="id" value={deleting.id} />
         <div class="modal-actions">
           <button class="btn" type="button" on:click={closeDelete}>Cancel</button>
-          <button class="btn danger" id="confirm-delete" type="submit">Delete</button>
+          <button
+            class="btn danger"
+            id="confirm-delete"
+            type="submit"
+            disabled={submittingIntent === 'delete'}
+          >
+            {submittingIntent === 'delete' ? 'Deleting...' : 'Delete'}
+          </button>
         </div>
       </form>
     </div>
@@ -637,6 +695,7 @@
       tabindex="-1"
       aria-modal="true"
       aria-labelledby="import-title"
+      aria-describedby={importError ? 'import-error' : undefined}
       on:keydown={(event) => handleDialogKeydown(event, closeImport)}
     >
       <div class="modal-header">
@@ -645,14 +704,24 @@
           ><X size={17} /></button
         >
       </div>
-      <form method="POST" action="?/previewCsv" enctype="multipart/form-data" use:enhance>
+      {#if importError}
+        <div class="notice modal-notice" id="import-error" role="alert">{importError}</div>
+      {/if}
+      <form
+        method="POST"
+        action="?/previewCsv"
+        enctype="multipart/form-data"
+        use:enhance={submitAction('previewCsv')}
+      >
         <div class="field">
           <label class="field-label" for="csv-file">CSV file</label>
           <input id="csv-file" name="csv_file" type="file" accept=".csv,text/csv" required />
         </div>
         <div class="modal-actions">
           <button class="btn" type="button" on:click={closeImport}>Cancel</button>
-          <button class="btn primary" type="submit">Preview</button>
+          <button class="btn primary" type="submit" disabled={submittingIntent === 'previewCsv'}>
+            {submittingIntent === 'previewCsv' ? 'Checking...' : 'Preview'}
+          </button>
         </div>
       </form>
 
@@ -693,12 +762,18 @@
               </tbody>
             </table>
           </div>
-          <form method="POST" action="?/importCsv" use:enhance={closeOnSuccess(closeImport)}>
+          <form
+            method="POST"
+            action="?/importCsv"
+            use:enhance={submitAction('importCsv', closeImport)}
+          >
             <input type="hidden" name="filename" value={form.filename ?? ''} />
             <textarea class="hidden-content" name="csv_content">{form.csvContent}</textarea>
             <div class="modal-actions">
               <button class="btn" type="button" on:click={closeImport}>Cancel</button>
-              <button class="btn primary" type="submit">Import ready rows</button>
+              <button class="btn primary" type="submit" disabled={submittingIntent === 'importCsv'}>
+                {submittingIntent === 'importCsv' ? 'Importing...' : 'Import ready rows'}
+              </button>
             </div>
           </form>
         </div>
@@ -812,6 +887,10 @@
     background: rgba(34, 197, 94, 0.12);
     border-color: rgba(34, 197, 94, 0.28);
     color: #9be7b4;
+    margin-bottom: 1rem;
+  }
+
+  .modal-notice {
     margin-bottom: 1rem;
   }
 

@@ -134,7 +134,7 @@
         <RefreshCw size={18} />
         {refreshing ? 'Refreshing' : 'Refresh prices'}
       </button>
-      <a class="btn primary" href="/transactions">
+      <a class="btn primary" href="/transactions?new=1">
         <Plus size={18} />
         Add transaction
       </a>
@@ -261,7 +261,7 @@
       {#if overview.holdings.length === 0}
         <div class="empty-state">
           <h2>No transactions yet</h2>
-          <a class="btn primary" href="/transactions">Add your first buy</a>
+          <a class="btn primary" href="/transactions?new=1">Add your first buy</a>
         </div>
       {:else if !snapshotSeries.hasSnapshots}
         <div class="empty-state">

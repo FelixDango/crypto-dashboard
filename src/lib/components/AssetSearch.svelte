@@ -33,15 +33,21 @@
   let loading = false;
   let open = false;
   let activeIndex = -1;
+  let searchMessage = '';
+  let inputElement: HTMLInputElement;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let requestController: AbortController | null = null;
 
   $: hasSelection = Boolean(selected.providerCoinId && selected.symbol && selected.name);
-  $: activeOptionId = activeIndex >= 0 ? `asset-option-${activeIndex}` : undefined;
+  $: resultsId = `${inputId}-results`;
+  $: messageId = `${inputId}-message`;
+  $: activeOptionId = activeIndex >= 0 ? `${inputId}-option-${activeIndex}` : undefined;
 
   function choose(asset: AssetChoice) {
     selected = asset;
     query = `${asset.symbol} - ${asset.name}`;
+    inputElement.setCustomValidity('');
+    searchMessage = '';
     open = false;
     activeIndex = -1;
     dispatch('select', asset);
@@ -54,6 +60,7 @@
       results = [];
       open = false;
       loading = false;
+      searchMessage = '';
       return;
     }
 
@@ -61,17 +68,25 @@
     const controller = new AbortController();
     requestController = controller;
     loading = true;
+    searchMessage = '';
     try {
       const response = await fetch(`/api/assets/search?q=${encodeURIComponent(cleaned)}`, {
         signal: controller.signal
       });
-      const nextResults = response.ok ? await response.json() : [];
+      if (!response.ok) throw new Error('Coin search failed.');
+      const payload: unknown = await response.json();
+      const nextResults = Array.isArray(payload) ? (payload as AssetChoice[]) : [];
       if (controller.signal.aborted || query.trim() !== cleaned) return;
       results = nextResults;
       open = results.length > 0;
       activeIndex = results.length > 0 ? 0 : -1;
+      searchMessage = results.length === 0 ? `No coins found for “${cleaned}”.` : '';
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) throw error;
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      results = [];
+      open = false;
+      activeIndex = -1;
+      searchMessage = 'Coin search is unavailable. Try again.';
     } finally {
       if (requestController === controller) {
         requestController = null;
@@ -89,8 +104,10 @@
       name: '',
       imageUrl: null
     };
+    inputElement.setCustomValidity(query.trim() ? 'Select a coin from the search results.' : '');
+    searchMessage = '';
     if (timer) clearTimeout(timer);
-    timer = setTimeout(search, 220);
+    timer = setTimeout(() => void search(), 220);
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -126,16 +143,24 @@
     <Search size={17} aria-hidden="true" />
     <input
       id={inputId}
+      bind:this={inputElement}
       name="asset_query"
       role="combobox"
       aria-autocomplete="list"
       aria-expanded={open}
-      aria-controls="asset-results"
+      aria-controls={resultsId}
       aria-activedescendant={activeOptionId}
+      aria-describedby={searchMessage || loading ? messageId : undefined}
+      aria-invalid={searchMessage ? 'true' : undefined}
       autocomplete="off"
       placeholder="Search BTC, ETH, SOL..."
       bind:value={query}
       on:input={onInput}
+      on:invalid={() => {
+        if (!hasSelection && query.trim()) {
+          inputElement.setCustomValidity('Select a coin from the search results.');
+        }
+      }}
       on:keydown={onKeydown}
       on:focus={() => {
         if (results.length > 0) open = true;
@@ -145,10 +170,10 @@
   </div>
 
   {#if open}
-    <div id="asset-results" class="asset-results" role="listbox" aria-label="Coin search results">
+    <div id={resultsId} class="asset-results" role="listbox" aria-label="Coin search results">
       {#each results as asset, index}
         <button
-          id={`asset-option-${index}`}
+          id={`${inputId}-option-${index}`}
           type="button"
           role="option"
           aria-selected={index === activeIndex}
@@ -168,7 +193,9 @@
   {/if}
 
   {#if loading}
-    <span class="field-hint">Searching...</span>
+    <span id={messageId} class="field-hint" role="status">Searching...</span>
+  {:else if searchMessage}
+    <span id={messageId} class="field-hint search-error" role="alert">{searchMessage}</span>
   {/if}
 
   {#if hasSelection}
@@ -276,5 +303,9 @@
 
   .selected-asset small {
     color: var(--muted);
+  }
+
+  .search-error {
+    color: #f8d891;
   }
 </style>

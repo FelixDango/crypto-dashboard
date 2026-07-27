@@ -20,7 +20,7 @@ import { parseTransactionForm } from '$lib/validation/transaction';
 
 function actionError(error: unknown) {
   if (error instanceof ZodError) {
-    return error.issues.map((issue) => issue.message).join(' ');
+    return [...new Set(error.issues.map((issue) => issue.message))].join(' ');
   }
   return getErrorMessage(error);
 }
