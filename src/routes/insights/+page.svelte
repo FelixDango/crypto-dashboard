@@ -9,8 +9,16 @@
     ShieldCheck
   } from '@lucide/svelte';
   import CycleCard from '$lib/components/CycleCard.svelte';
+  import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
-  import { formatPercent, signedClass } from '$lib/format';
+  import {
+    formatDate,
+    formatDateTime,
+    formatPercentagePoints,
+    formatPercent,
+    signedClass
+  } from '$lib/format';
+  import type { PlannedAssetMarketSignals } from '$lib/market-signals/types';
   import type { AnalyticsAllocationResponse, AnalyticsSummary } from '$lib/analytics/types';
   import type { DataConfidence } from '$lib/server/insights/data-confidence';
   import type { ExplainRange, ExplainResult } from '$lib/server/insights/explain';
@@ -32,6 +40,7 @@
     };
     newsContext: PortfolioNewsContext;
     newsHealth: NewsHealth;
+    marketSignals: PlannedAssetMarketSignals;
     cycle: CycleProgress | null;
     cycleWindows: CycleWindow[];
   };
@@ -74,6 +83,164 @@
       {/each}
     </div>
   </div>
+
+  <div class="grid two-column market-context-grid">
+    <section class="card insight-card market-health-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Global market context</span>
+          <h2>Crypto Fear &amp; Greed</h2>
+        </div>
+        <span class="status {data.marketSignals.health.sentimentFresh ? 'healthy' : 'warning'}">
+          {data.marketSignals.health.sentimentFresh ? 'Fresh' : 'Pending or stale'}
+        </span>
+      </div>
+      {#if data.marketSignals.sentiment}
+        <div class="sentiment-reading">
+          <strong>{data.marketSignals.sentiment.value}</strong>
+          <span>{data.marketSignals.sentiment.classification}</span>
+          <small>Observed {formatDate(data.marketSignals.sentiment.observedOn)}</small>
+        </div>
+      {:else}
+        <p class="muted">Waiting for the scheduled sentiment refresh.</p>
+      {/if}
+      <a
+        class="provider-link"
+        href="https://alternative.me/crypto/fear-and-greed-index/"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Alternative.me attribution <ExternalLink size={13} />
+      </a>
+      <div class="safe-grid signal-health-grid">
+        <article>
+          <span>Planned assets</span>
+          <strong>{data.marketSignals.health.plannedAssetCount}</strong>
+        </article>
+        <article>
+          <span>Fully scored</span>
+          <strong>{data.marketSignals.health.fullyScoredAssetCount}</strong>
+        </article>
+        <article>
+          <span>Candidates</span>
+          <strong>{data.marketSignals.health.candidateCount}</strong>
+        </article>
+        <article>
+          <span>Pending</span>
+          <strong>{data.marketSignals.health.pendingAssetCount}</strong>
+        </article>
+      </div>
+      {#if data.marketSignals.health.messages.length > 0}
+        <ul class="issue-list">
+          {#each data.marketSignals.health.messages as message}
+            <li>{message}</li>
+          {/each}
+        </ul>
+      {/if}
+      <small class="muted">
+        Last successful asset-history refresh:
+        {formatDateTime(data.marketSignals.health.lastHistoryRefreshAt)}
+      </small>
+    </section>
+
+    <section class="card insight-card signal-ranking-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Planned-asset ranking</span>
+          <h2>Five-signal context</h2>
+        </div>
+        <a href="/plan">Open plan</a>
+      </div>
+      {#if data.marketSignals.assessments.length === 0}
+        <p class="muted">Save allocation targets on the Plan page to populate this ranking.</p>
+      {:else}
+        <div class="insight-signal-list">
+          {#each data.marketSignals.assessments as assessment, index}
+            <article class:candidate={assessment.candidate}>
+              <span class="rank">{index + 1}</span>
+              <CryptoIcon
+                src={assessment.imageUrl}
+                symbol={assessment.symbol}
+                name={assessment.name}
+                size={30}
+              />
+              <div>
+                <strong>{assessment.symbol}</strong>
+                <small>
+                  {assessment.favorableCount}/5 favorable ·
+                  {assessment.underweight ? 'below target' : 'not below target'}
+                </small>
+              </div>
+              <div class="ranking-meta">
+                {#if assessment.candidateLabel}
+                  <span class="candidate-label">{assessment.candidateLabel}</span>
+                {:else if assessment.driftPercentagePoints !== null}
+                  <span>{formatPercentagePoints(assessment.driftPercentagePoints)} drift</span>
+                {:else}
+                  <span>Drift unavailable</span>
+                {/if}
+                <small
+                  >{assessment.historyAsOf
+                    ? `Through ${formatDate(assessment.historyAsOf)}`
+                    : 'History pending'}</small
+                >
+              </div>
+            </article>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  </div>
+
+  <section class="card signal-methodology">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Methodology</span>
+        <h2>Transparent thresholds and completed daily closes</h2>
+      </div>
+      <a
+        class="provider-link"
+        href="https://docs.coingecko.com/reference/coins-id-market-chart"
+        target="_blank"
+        rel="noreferrer">CoinGecko history <ExternalLink size={13} /></a
+      >
+    </div>
+    <div class="method-grid">
+      <article>
+        <strong>Fear &amp; Greed</strong><span
+          >Favorable ≤ {data.marketSignals.settings.fearGreedMax}</span
+        >
+      </article>
+      <article>
+        <strong>RSI (14)</strong><span
+          >Wilder smoothing · favorable ≤ {data.marketSignals.settings.rsi14Max}</span
+        >
+      </article>
+      <article>
+        <strong>200-day SMA deviation</strong><span
+          >(close / SMA200 − 1) × 100 · favorable ≤ {data.marketSignals.settings
+            .sma200DeviationMax}%</span
+        >
+      </article>
+      <article>
+        <strong>365-day drawdown</strong><span
+          >(close / 365-day high − 1) × 100 · favorable ≤ {data.marketSignals.settings
+            .drawdown365Max}%</span
+        >
+      </article>
+      <article>
+        <strong>20-day Bollinger position</strong><span
+          >(close − SMA20) / population standard deviation · favorable ≤ {data.marketSignals
+            .settings.bollingerZMax}</span
+        >
+      </article>
+    </div>
+    <p class="muted small-note">
+      A “Contribution candidate” needs complete portfolio valuation, a below-target allocation, all
+      five fresh signals, and at least {data.marketSignals.settings.requiredFavorableCount} favorable
+      signals. {data.marketSignals.methodologyDisclaimer}
+    </p>
+  </section>
 
   <div class="grid two-column">
     <section class="card insight-card">
@@ -568,9 +735,127 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .market-health-card,
+  .signal-ranking-card,
+  .signal-methodology {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .sentiment-reading {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  .sentiment-reading strong {
+    color: var(--accent);
+    font-size: 2.25rem;
+    line-height: 1;
+  }
+
+  .sentiment-reading span {
+    font-weight: 800;
+  }
+
+  .sentiment-reading small {
+    color: var(--muted);
+    flex-basis: 100%;
+  }
+
+  .provider-link,
+  .signal-ranking-card .section-head a {
+    align-items: center;
+    color: var(--accent);
+    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 800;
+    gap: 0.25rem;
+  }
+
+  .signal-health-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .insight-signal-list {
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .insight-signal-list > article {
+    align-items: center;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    padding: 0.65rem;
+  }
+
+  .insight-signal-list > article.candidate {
+    border-color: rgba(34, 197, 94, 0.34);
+  }
+
+  .rank {
+    color: var(--subtle);
+    font-size: 0.75rem;
+    font-weight: 800;
+    width: 1rem;
+  }
+
+  .insight-signal-list article > div:not(.ranking-meta),
+  .ranking-meta {
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  .insight-signal-list small,
+  .ranking-meta span {
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .ranking-meta {
+    justify-items: end;
+    text-align: right;
+  }
+
+  .candidate-label {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.32);
+    border-radius: 999px;
+    color: var(--positive) !important;
+    font-weight: 800;
+    padding: 0.2rem 0.45rem;
+  }
+
+  .method-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .method-grid article {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.75rem;
+  }
+
+  .method-grid span {
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+
   @media (max-width: 980px) {
     .confidence-grid,
     .safe-grid,
+    .method-grid,
     .timeline {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -580,6 +865,7 @@
     .range-tabs,
     .confidence-grid,
     .safe-grid,
+    .method-grid,
     .timeline {
       grid-template-columns: 1fr;
       width: 100%;
@@ -587,6 +873,16 @@
 
     .range-tabs {
       display: flex;
+    }
+
+    .insight-signal-list > article {
+      grid-template-columns: auto auto minmax(0, 1fr);
+    }
+
+    .ranking-meta {
+      grid-column: 2 / -1;
+      justify-items: start;
+      text-align: left;
     }
   }
 </style>

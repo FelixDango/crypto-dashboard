@@ -8,6 +8,8 @@
     CheckCircle2,
     Pencil,
     Plus,
+    RefreshCw,
+    SlidersHorizontal,
     Target,
     Trash2,
     TriangleAlert,
@@ -16,7 +18,14 @@
   import AssetSearch from '$lib/components/AssetSearch.svelte';
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
-  import { formatCurrency, formatDate, formatPercentagePoints, formatPercent } from '$lib/format';
+  import {
+    formatCurrency,
+    formatDate,
+    formatDateTime,
+    formatPercentagePoints,
+    formatPercent
+  } from '$lib/format';
+  import type { PlannedAssetMarketSignals, SignalDatum } from '$lib/market-signals/types';
   import type {
     ContributionScenario,
     PortfolioPlanDraft,
@@ -35,14 +44,20 @@
 
   type AssetChoice = Omit<EditorRow, 'key' | 'targetPercentage'> & { id: string };
 
-  export let data: { planning: PortfolioPlanning; baseCurrency: 'EUR' | 'USD' };
+  export let data: {
+    planning: PortfolioPlanning;
+    marketSignals: PlannedAssetMarketSignals;
+    baseCurrency: 'EUR' | 'USD';
+  };
   export let form: {
     error?: string;
     success?: boolean;
-    intent?: 'save' | 'clear' | 'scenario';
+    intent?: 'save' | 'clear' | 'scenario' | 'refreshSignals';
     draft?: PortfolioPlanDraft;
     contribution?: string;
     scenario?: ContributionScenario;
+    refreshedAssetId?: string;
+    sentimentWarning?: string | null;
   } | null = null;
 
   let nextRowKey = 1;
@@ -56,6 +71,7 @@
   let contribution = form?.contribution ?? '';
 
   $: planning = data.planning;
+  $: marketSignals = data.marketSignals;
   $: currency = planning.plan?.currency ?? data.baseCurrency;
   $: targetTotal = calculateTargetTotal(targetRows);
   $: validTargetRows = targetRows.every(
@@ -76,6 +92,7 @@
   $: clearError = form?.intent === 'clear' ? form.error : null;
   $: scenarioError = form?.intent === 'scenario' ? form.error : null;
   $: scenario = form?.intent === 'scenario' ? form.scenario : null;
+  $: signalRefreshError = form?.intent === 'refreshSignals' ? form.error : null;
 
   function createInitialRows(draft?: PortfolioPlanDraft): EditorRow[] {
     const targets =
@@ -185,6 +202,16 @@
       return `${deadline.days} day${deadline.days === 1 ? '' : 's'} past target date`;
     }
     return `${deadline.days} day${deadline.days === 1 ? '' : 's'} remaining`;
+  }
+
+  function signalValue(signal: SignalDatum): string {
+    if (signal.value === null) return 'Unavailable';
+    const value = new Decimal(signal.value).toDecimalPlaces(2).toString();
+    return signal.unit === 'percent' ? `${value}%` : value;
+  }
+
+  function thresholdValue(signal: SignalDatum): string {
+    return `${signal.unit === 'percent' ? `${signal.threshold}%` : signal.threshold} or lower`;
   }
 </script>
 
@@ -417,6 +444,191 @@
       <p class="section-foot muted">
         Positive value gaps are below the saved target at the current portfolio value. Holdings
         without a target are listed with a 0% target.
+      </p>
+    </section>
+
+    <section class="card market-signals-section">
+      <div class="section-head">
+        <div>
+          <span class="section-icon"><SlidersHorizontal size={18} /></span>
+          <h2>Planned-asset market context</h2>
+          <p class="muted">
+            Deterministic ranking from five completed-daily-data signals. Candidates appear only for
+            underweight targets with all signals fresh and at least
+            {marketSignals.settings.requiredFavorableCount} favorable.
+          </p>
+        </div>
+        <a class="btn" href="/settings">Edit thresholds</a>
+      </div>
+
+      <div class="signal-health-row">
+        <span class="signal-pill"
+          >{marketSignals.health.fullyScoredAssetCount}/{marketSignals.health.plannedAssetCount} fully
+          scored</span
+        >
+        <span class="signal-pill">{marketSignals.health.candidateCount} candidates</span>
+        <span class:positive={marketSignals.health.sentimentFresh} class="signal-pill">
+          Sentiment {marketSignals.health.sentimentFresh ? 'fresh' : 'pending or stale'}
+        </span>
+      </div>
+
+      <div class="sentiment-context">
+        <div>
+          <span class="metric-label">Bitcoin-wide Crypto Fear &amp; Greed</span>
+          {#if marketSignals.sentiment}
+            <strong
+              >{marketSignals.sentiment.value} · {marketSignals.sentiment.classification}</strong
+            >
+            <small>
+              Observed {formatDate(marketSignals.sentiment.observedOn)} ·
+              {marketSignals.health.sentimentFresh ? 'fresh' : 'stale'}
+            </small>
+          {:else}
+            <strong>Waiting for first refresh</strong>
+          {/if}
+        </div>
+        <a
+          href="https://alternative.me/crypto/fear-and-greed-index/"
+          target="_blank"
+          rel="noreferrer">Alternative.me attribution</a
+        >
+      </div>
+
+      {#if signalRefreshError}
+        <div class="notice" role="alert">{signalRefreshError}</div>
+      {:else if form?.intent === 'refreshSignals' && form.success}
+        <div class="notice signal-success" role="status">
+          Market history refreshed.{form.sentimentWarning ? ` ${form.sentimentWarning}` : ''}
+        </div>
+      {/if}
+
+      {#if marketSignals.assessments.length === 0}
+        <p class="muted">Save allocation targets to begin collecting market context.</p>
+      {:else}
+        <div class="signal-asset-list">
+          {#each marketSignals.assessments as assessment}
+            <article class:candidate={assessment.candidate} class="signal-asset-card">
+              <div class="signal-asset-head">
+                <div class="asset-cell">
+                  <CryptoIcon
+                    src={assessment.imageUrl}
+                    symbol={assessment.symbol}
+                    name={assessment.name}
+                    size={34}
+                  />
+                  <span>
+                    <strong>{assessment.symbol}</strong>
+                    <small>{assessment.name}</small>
+                  </span>
+                </div>
+                <div class="signal-asset-labels">
+                  {#if assessment.candidateLabel}
+                    <span class="candidate-label">{assessment.candidateLabel}</span>
+                  {/if}
+                  <span class="signal-pill">{assessment.favorableCount}/5 favorable</span>
+                </div>
+              </div>
+
+              <div class="signal-summary-grid">
+                <span>
+                  <small>Allocation</small>
+                  <strong class:negative={assessment.underweight}>
+                    {assessment.underweight ? 'Below target' : 'Not below target'}
+                  </strong>
+                </span>
+                <span>
+                  <small>Drift</small>
+                  <strong class={driftClass(assessment.driftPercentagePoints)}>
+                    {assessment.driftPercentagePoints === null
+                      ? 'Unavailable'
+                      : formatPercentagePoints(assessment.driftPercentagePoints)}
+                  </strong>
+                </span>
+                <span>
+                  <small>History through</small>
+                  <strong
+                    >{assessment.historyAsOf
+                      ? formatDate(assessment.historyAsOf)
+                      : 'Pending'}</strong
+                  >
+                </span>
+                <span>
+                  <small>Last refresh</small>
+                  <strong>{formatDateTime(assessment.lastRefreshAt)}</strong>
+                </span>
+              </div>
+
+              <div class="signal-actions">
+                <details>
+                  <summary>Show five signal explanations</summary>
+                  <div class="signal-detail-list">
+                    {#each assessment.signals as signal}
+                      <article class="signal-detail">
+                        <div>
+                          <strong>{signal.label}</strong>
+                          {#if signal.key === 'fear_greed'}
+                            <a
+                              href="https://alternative.me/crypto/fear-and-greed-index/"
+                              target="_blank"
+                              rel="noreferrer">Alternative.me</a
+                            >
+                          {/if}
+                        </div>
+                        <span class="signal-state {signal.state}">{signal.state}</span>
+                        <p>{signal.explanation}</p>
+                        <small>
+                          Value: {signalValue(signal)} · favorable at {thresholdValue(signal)} · as of
+                          {signal.asOf ? formatDate(signal.asOf) : 'unavailable'}
+                        </small>
+                        {#if signal.unavailableReason}
+                          <small class="signal-reason">{signal.unavailableReason}</small>
+                        {/if}
+                      </article>
+                    {/each}
+                  </div>
+                </details>
+                <form
+                  method="POST"
+                  action="?/refreshSignals"
+                  use:enhance={submitAction(`refresh:${assessment.assetId}`)}
+                >
+                  <input type="hidden" name="asset_id" value={assessment.assetId} />
+                  <button
+                    class="btn"
+                    type="submit"
+                    disabled={submittingIntent === `refresh:${assessment.assetId}`}
+                    aria-busy={submittingIntent === `refresh:${assessment.assetId}`}
+                  >
+                    <RefreshCw size={16} />
+                    {submittingIntent === `refresh:${assessment.assetId}`
+                      ? 'Refreshing…'
+                      : 'Refresh'}
+                  </button>
+                </form>
+              </div>
+
+              {#if !assessment.candidate && assessment.reasons.length > 0}
+                <div class="suppression-reasons">
+                  <strong>Candidate label suppressed</strong>
+                  <ul>
+                    {#each assessment.reasons as reason}
+                      <li>{reason}</li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+            </article>
+          {/each}
+        </div>
+      {/if}
+
+      <p class="disclaimer">
+        {marketSignals.methodologyDisclaimer} Daily price history and volume are supplied by
+        <a
+          href="https://docs.coingecko.com/reference/coins-id-market-chart"
+          target="_blank"
+          rel="noreferrer">CoinGecko</a
+        >. This section never calculates quantities, creates transactions, or places orders.
       </p>
     </section>
 
@@ -876,9 +1088,176 @@
   }
 
   .allocation-section,
+  .market-signals-section,
   .scenario-section {
     display: grid;
     gap: 0.9rem;
+  }
+
+  .signal-health-row,
+  .signal-asset-labels,
+  .signal-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .signal-pill,
+  .candidate-label,
+  .signal-state {
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+    padding: 0.28rem 0.52rem;
+  }
+
+  .candidate-label,
+  .signal-state.favorable {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: rgba(34, 197, 94, 0.32);
+    color: var(--positive);
+  }
+
+  .signal-state.unavailable {
+    background: rgba(245, 158, 11, 0.09);
+    border-color: rgba(245, 158, 11, 0.28);
+    color: #f8d891;
+  }
+
+  .sentiment-context {
+    align-items: center;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    padding: 0.8rem;
+  }
+
+  .sentiment-context > div {
+    display: grid;
+    gap: 0.22rem;
+  }
+
+  .sentiment-context small,
+  .signal-summary-grid small,
+  .signal-detail small {
+    color: var(--muted);
+  }
+
+  .sentiment-context a,
+  .signal-detail a,
+  .market-signals-section .disclaimer a {
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 750;
+  }
+
+  .signal-success {
+    border-color: rgba(34, 197, 94, 0.32);
+  }
+
+  .signal-asset-list,
+  .signal-detail-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .signal-asset-card {
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    gap: 0.8rem;
+    padding: 0.9rem;
+  }
+
+  .signal-asset-card.candidate {
+    border-color: rgba(34, 197, 94, 0.36);
+  }
+
+  .signal-asset-head {
+    align-items: center;
+    display: flex;
+    gap: 0.8rem;
+    justify-content: space-between;
+  }
+
+  .signal-summary-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .signal-summary-grid > span {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .signal-actions {
+    justify-content: space-between;
+  }
+
+  .signal-actions details {
+    flex: 1 1 480px;
+  }
+
+  .signal-actions summary {
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+
+  .signal-detail-list {
+    margin-top: 0.75rem;
+  }
+
+  .signal-detail {
+    border-left: 2px solid var(--border);
+    display: grid;
+    gap: 0.3rem;
+    grid-template-columns: 1fr auto;
+    padding: 0.35rem 0 0.35rem 0.7rem;
+  }
+
+  .signal-detail > div {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .signal-detail p,
+  .signal-detail small {
+    grid-column: 1 / -1;
+  }
+
+  .signal-reason {
+    color: #f8d891 !important;
+  }
+
+  .suppression-reasons {
+    background: rgba(245, 158, 11, 0.06);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: 8px;
+    color: #f8d891;
+    display: grid;
+    font-size: 0.8rem;
+    gap: 0.3rem;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .suppression-reasons ul {
+    display: grid;
+    gap: 0.15rem;
+    margin: 0;
+    padding-left: 1.1rem;
   }
 
   .asset-cell {
@@ -1096,8 +1475,15 @@
     }
 
     .hero-metrics,
+    .signal-summary-grid,
     .scenario-form {
       grid-template-columns: 1fr;
+    }
+
+    .sentiment-context,
+    .signal-asset-head {
+      align-items: flex-start;
+      display: grid;
     }
 
     .scenario-form .btn {

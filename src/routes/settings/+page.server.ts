@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
 import { getDatabasePath, getSqlite } from '$lib/server/db/client';
 import { getAppSettings, updateAppSettings } from '$lib/server/settings';
 import { listPriceProviders } from '$lib/server/prices/providers';
@@ -14,18 +15,21 @@ import {
   applyPlanCurrencyConversion,
   preparePlanCurrencyConversion
 } from '$lib/server/planning/service';
+import { getMarketSignalSettings, updateMarketSignalSettings } from '$lib/server/signals/settings';
+import { parseMarketSignalSettingsForm } from '$lib/validation/market-signals';
 
-export function load() {
+export const load: PageServerLoad = () => {
   return {
     settings: getAppSettings(),
+    signalSettings: getMarketSignalSettings(),
     providers: listPriceProviders(),
     databasePath: getDatabasePath(),
     version: process.env.npm_package_version ?? '0.1.0',
     nodeEnv: process.env.NODE_ENV ?? 'development'
   };
-}
+};
 
-export const actions = {
+export const actions: Actions = {
   update: async ({ request }) => {
     const formData = await request.formData();
     const parsed = settingsSchema.safeParse({
@@ -34,7 +38,7 @@ export const actions = {
     });
 
     if (!parsed.success) {
-      return fail(400, { error: 'Invalid settings.' });
+      return fail(400, { error: 'Invalid settings.', intent: 'preferences' as const });
     }
 
     try {
@@ -53,8 +57,30 @@ export const actions = {
         })();
       });
     } catch (error) {
-      return fail(400, { error: getErrorMessage(error, 'Settings could not be updated.') });
+      return fail(400, {
+        error: getErrorMessage(error, 'Settings could not be updated.'),
+        intent: 'preferences' as const
+      });
     }
     return { success: true };
+  },
+
+  updateSignals: async ({ request }) => {
+    const parsed = parseMarketSignalSettingsForm(await request.formData());
+    if (!parsed.success) {
+      return fail(400, {
+        error: [...new Set(parsed.error.issues.map((issue) => issue.message))].join(' '),
+        intent: 'signals' as const
+      });
+    }
+    try {
+      updateMarketSignalSettings(parsed.data);
+      return { success: true, intent: 'signals' as const };
+    } catch (error) {
+      return fail(400, {
+        error: getErrorMessage(error, 'Market signal settings could not be updated.'),
+        intent: 'signals' as const
+      });
+    }
   }
 };

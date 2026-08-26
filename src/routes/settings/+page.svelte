@@ -1,18 +1,25 @@
 <script lang="ts">
   import { Download, Save } from '@lucide/svelte';
   import { enhance } from '$app/forms';
+  import type { MarketSignalSettings } from '$lib/market-signals/types';
 
   export let data: {
     settings: {
       baseCurrency: 'EUR' | 'USD';
       priceProvider: string;
     };
+    signalSettings: MarketSignalSettings;
     providers: Array<{ id: string; label: string }>;
     databasePath: string;
     version: string;
     nodeEnv: string;
   };
-  export let form: { error?: string; success?: boolean } | null;
+  export let form: {
+    error?: string;
+    success?: boolean;
+    intent?: 'preferences' | 'signals';
+  } | null;
+  let requiredFavorableCount = String(data.signalSettings.requiredFavorableCount);
 </script>
 
 <section class="page">
@@ -25,6 +32,10 @@
 
   {#if form?.error}
     <div class="notice">{form.error}</div>
+  {:else if form?.success}
+    <div class="notice success-notice">
+      {form.intent === 'signals' ? 'Market signal thresholds saved.' : 'Preferences saved.'}
+    </div>
   {/if}
 
   <div class="grid two-column">
@@ -81,6 +92,90 @@
       </a>
     </section>
   </div>
+
+  <section class="card signal-settings-card">
+    <div>
+      <h2>Planned-asset market signals</h2>
+      <p class="muted">
+        Global conservative thresholds used for informational candidate ranking. Equality counts as
+        favorable, and all five fresh signals are still required.
+      </p>
+    </div>
+    <form method="POST" action="?/updateSignals" use:enhance>
+      <div class="field-grid signal-grid">
+        <label class="field">
+          <span class="field-label">Fear &amp; Greed maximum</span>
+          <input
+            name="fear_greed_max"
+            type="text"
+            inputmode="decimal"
+            value={data.signalSettings.fearGreedMax}
+            required
+          />
+          <span class="field-hint">0–100 · default 25</span>
+        </label>
+        <label class="field">
+          <span class="field-label">RSI (14) maximum</span>
+          <input
+            name="rsi_14_max"
+            type="text"
+            inputmode="decimal"
+            value={data.signalSettings.rsi14Max}
+            required
+          />
+          <span class="field-hint">0–100 · default 30</span>
+        </label>
+        <label class="field">
+          <span class="field-label">200-day SMA deviation maximum (%)</span>
+          <input
+            name="sma_200_deviation_max"
+            type="text"
+            inputmode="decimal"
+            value={data.signalSettings.sma200DeviationMax}
+            required
+          />
+          <span class="field-hint">−100 to 100 · default −10</span>
+        </label>
+        <label class="field">
+          <span class="field-label">365-day drawdown maximum (%)</span>
+          <input
+            name="drawdown_365_max"
+            type="text"
+            inputmode="decimal"
+            value={data.signalSettings.drawdown365Max}
+            required
+          />
+          <span class="field-hint">−100 to 0 · default −30</span>
+        </label>
+        <label class="field">
+          <span class="field-label">Bollinger position maximum</span>
+          <input
+            name="bollinger_z_max"
+            type="text"
+            inputmode="decimal"
+            value={data.signalSettings.bollingerZMax}
+            required
+          />
+          <span class="field-hint">−10 to 10 · default −1.5</span>
+        </label>
+        <label class="field">
+          <span class="field-label">Required favorable signals</span>
+          <select name="required_favorable_count" bind:value={requiredFavorableCount}>
+            {#each [1, 2, 3, 4, 5] as count}
+              <option value={String(count)}>{count} of 5</option>
+            {/each}
+          </select>
+          <span class="field-hint">Default 4 of 5</span>
+        </label>
+      </div>
+      <div class="settings-actions">
+        <button class="btn primary" type="submit">
+          <Save size={17} />
+          Save signal thresholds
+        </button>
+      </div>
+    </form>
+  </section>
 </section>
 
 <style>
@@ -94,6 +189,24 @@
 
   .settings-actions {
     margin-top: 1rem;
+  }
+
+  .signal-settings-card {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .signal-settings-card h2 {
+    margin-bottom: 0.35rem;
+  }
+
+  .signal-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .success-notice {
+    border-color: color-mix(in srgb, var(--positive) 35%, var(--border));
   }
 
   .backup-card {
@@ -119,6 +232,10 @@
 
   @media (max-width: 720px) {
     .settings-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .signal-grid {
       grid-template-columns: 1fr;
     }
   }

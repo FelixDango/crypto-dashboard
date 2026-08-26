@@ -11,6 +11,8 @@ import {
 import { generateCycleWindows, getCycleProgress } from '$lib/server/insights/market-cycle';
 import { getPortfolioNewsContext } from '$lib/server/news/context';
 import { getNewsHealth } from '$lib/server/news/health';
+import { getPortfolioPlanning } from '$lib/server/planning/service';
+import { getPlannedAssetMarketSignals } from '$lib/server/signals/service';
 
 const ranges: { value: ExplainRange; label: string }[] = [
   { value: '24h', label: '24h' },
@@ -34,7 +36,8 @@ export const load: PageServerLoad = async ({ url }) => {
     risk,
     cycleExplain,
     newsContext,
-    newsHealth
+    newsHealth,
+    planning
   ] = await Promise.all([
     getAnalyticsSummary({ now }),
     getAnalyticsAllocation(),
@@ -44,7 +47,8 @@ export const load: PageServerLoad = async ({ url }) => {
     explainRiskState({ now }),
     explainCycleContext({ now }),
     getPortfolioNewsContext(range, { now }),
-    Promise.resolve(getNewsHealth({ now }))
+    Promise.resolve(getNewsHealth({ now })),
+    getPortfolioPlanning(undefined, now)
   ]);
 
   return {
@@ -61,6 +65,7 @@ export const load: PageServerLoad = async ({ url }) => {
     },
     newsContext,
     newsHealth,
+    marketSignals: getPlannedAssetMarketSignals(planning, now),
     cycle: getCycleProgress(now),
     cycleWindows: generateCycleWindows(
       new Date('2022-11-08T00:00:00.000Z'),

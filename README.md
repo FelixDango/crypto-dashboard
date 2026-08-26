@@ -68,6 +68,56 @@ Focused verification is included in:
 npx vitest run tests/planning-calculations.test.ts tests/planning-persistence.test.ts tests/db-migration.test.ts
 ```
 
+## Planned-Asset Market Signals
+
+The Plan and Insights pages add deterministic market context for saved allocation targets. This is
+an informational ranking layer: it does not calculate quantities, create transactions, place
+orders, connect exchange accounts, send notifications, or use “buy now” instructions.
+
+Signals use `decimal.js` and completed UTC daily closes:
+
+- Crypto Fear & Greed: favorable at `≤ 25`. This is Bitcoin-wide context supplied by
+  [Alternative.me](https://alternative.me/crypto/fear-and-greed-index/), not an asset-specific
+  measure.
+- RSI (14): Wilder-smoothed RSI, favorable at `≤ 30`.
+- 200-day SMA deviation: `(close / SMA200 - 1) × 100`, favorable at `≤ -10%`.
+- 365-day drawdown: `(close / highest close over 365 days - 1) × 100`, favorable at `≤ -30%`.
+- 20-day Bollinger position: `(close - SMA20) / population standard deviation`, favorable at
+  `≤ -1.5`.
+
+The thresholds and required favorable count are global and editable under Settings. Defaults
+require at least four favorable signals, but all five signals must be available and fresh. Exact
+threshold equality is favorable. An asset is labeled **Contribution candidate** only when the
+portfolio valuation is complete, its current allocation is below its saved target, all five signals
+are fresh, and the favorable-count threshold is met.
+
+The label is suppressed when fewer than 365 completed daily points exist, market history is over 36
+hours stale, Fear & Greed is over 48 hours stale, portfolio planning data is partial, or any signal
+is unavailable. The exact reasons appear beside the asset. A zero-value portfolio treats every
+positive allocation target as underweight without dividing by zero.
+
+Daily price history comes from CoinGecko's public
+[`market_chart` endpoint](https://docs.coingecko.com/reference/coins-id-market-chart). Provider
+payloads are validated server-side; the current incomplete UTC day is excluded, duplicate daily
+points are resolved to the latest timestamp, decimal values are stored as text, and only the latest
+400 days are retained. Cached history is keyed by base currency. Changing EUR/USD never reinterprets
+old history: signals remain pending until the new currency is populated.
+
+The authenticated internal refresh endpoint is `POST /api/internal/signals/refresh`. The cron
+sidecar calls it every ten minutes, and each invocation processes at most two stale planned assets
+to remain conservative with public API rate limits. Failed requests keep prior points and update
+per-asset retry health; failed assets are retried after a cooldown. The Plan page also offers a
+manual one-asset refresh. Page loads themselves never trigger market-history or sentiment requests.
+
+These signals do not establish fair value and cannot predict returns. Favorable historical or
+sentiment conditions can persist while prices continue falling.
+
+Focused verification:
+
+```bash
+npx vitest run tests/market-signals-calculations.test.ts tests/market-signals-service.test.ts tests/db-migration.test.ts
+```
+
 ## Docker
 
 Create the Docker network shared with Nginx Proxy Manager if it does not already exist:
@@ -100,6 +150,8 @@ The `snapshot-cron` sidecar runs Alpine `crond` and calls the app by internal Do
 - Hourly snapshot: minute 5, `POST http://krypto-dashboard:3000/api/internal/snapshots/hourly`
 - Analytics health check: minute 10,
   `POST http://krypto-dashboard:3000/api/internal/analytics/health-check`
+- Planned-asset signals: minutes 2, 12, 22, 32, 42, and 52,
+  `POST http://krypto-dashboard:3000/api/internal/signals/refresh`
 - News fetch: minute 20, `POST http://krypto-dashboard:3000/api/internal/news/fetch`
 - Daily snapshot: 23:55, `POST http://krypto-dashboard:3000/api/internal/snapshots/daily`
 
@@ -125,6 +177,7 @@ docker compose exec snapshot-cron sh -c 'curl -i -X POST http://krypto-dashboard
 
 ```bash
 docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/snapshots/hourly'
+docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/signals/refresh'
 docker compose exec snapshot-cron sh -c 'curl -i -X POST http://krypto-dashboard:3000/api/internal/news/fetch -H "Authorization: Bearer $INTERNAL_CRON_SECRET"'
 docker compose exec snapshot-cron sh -lc 'curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://krypto-dashboard:3000/api/internal/snapshots/daily'
 ```
@@ -133,6 +186,7 @@ For local dev on the Vite server:
 
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://localhost:5173/api/internal/snapshots/hourly
+curl -fsS -X POST -H "Authorization: Bearer $INTERNAL_CRON_SECRET" http://localhost:5173/api/internal/signals/refresh
 ```
 
 Disable the cron sidecar while keeping the app running:

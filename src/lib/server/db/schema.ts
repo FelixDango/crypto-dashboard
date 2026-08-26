@@ -275,6 +275,93 @@ export const portfolioAllocationTargets = sqliteTable(
   })
 );
 
+export const marketDailyPoints = sqliteTable(
+  'market_daily_points',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    baseCurrency: text('base_currency').$type<Currency>().notNull(),
+    day: text('day').notNull(),
+    close: text('close').notNull(),
+    volume: text('volume'),
+    source: text('source').notNull(),
+    capturedAt: text('captured_at').notNull()
+  },
+  (table) => ({
+    assetCurrencyDaySourceUnique: uniqueIndex(
+      'market_daily_points_asset_currency_day_source_unique'
+    ).on(table.assetId, table.baseCurrency, table.day, table.source),
+    assetCurrencyDayIndex: index('market_daily_points_asset_currency_day_idx').on(
+      table.assetId,
+      table.baseCurrency,
+      table.day
+    ),
+    capturedIndex: index('market_daily_points_captured_idx').on(table.capturedAt)
+  })
+);
+
+export const marketSentimentSnapshots = sqliteTable(
+  'market_sentiment_snapshots',
+  {
+    id: text('id').primaryKey(),
+    provider: text('provider').notNull(),
+    observedOn: text('observed_on').notNull(),
+    value: text('value').notNull(),
+    classification: text('classification').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    capturedAt: text('captured_at').notNull()
+  },
+  (table) => ({
+    providerObservedUnique: uniqueIndex('market_sentiment_snapshots_provider_observed_unique').on(
+      table.provider,
+      table.observedOn
+    ),
+    providerCapturedIndex: index('market_sentiment_snapshots_provider_captured_idx').on(
+      table.provider,
+      table.capturedAt
+    )
+  })
+);
+
+export const marketSignalRefreshState = sqliteTable(
+  'market_signal_refresh_state',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    baseCurrency: text('base_currency').$type<Currency>().notNull(),
+    lastAttemptAt: text('last_attempt_at').notNull(),
+    lastSuccessAt: text('last_success_at'),
+    lastError: text('last_error'),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => ({
+    assetCurrencyUnique: uniqueIndex('market_signal_refresh_state_asset_currency_unique').on(
+      table.assetId,
+      table.baseCurrency
+    ),
+    currencySuccessIndex: index('market_signal_refresh_state_currency_success_idx').on(
+      table.baseCurrency,
+      table.lastSuccessAt
+    )
+  })
+);
+
+export const marketSignalSettings = sqliteTable('market_signal_settings', {
+  id: integer('id').primaryKey(),
+  fearGreedMax: text('fear_greed_max').notNull(),
+  rsi14Max: text('rsi_14_max').notNull(),
+  sma200DeviationMax: text('sma_200_deviation_max').notNull(),
+  drawdown365Max: text('drawdown_365_max').notNull(),
+  bollingerZMax: text('bollinger_z_max').notNull(),
+  requiredFavorableCount: integer('required_favorable_count').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+});
+
 export const marketCycleSettings = sqliteTable('market_cycle_settings', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -418,6 +505,14 @@ export type PortfolioPlanRow = typeof portfolioPlans.$inferSelect;
 export type NewPortfolioPlanRow = typeof portfolioPlans.$inferInsert;
 export type PortfolioAllocationTargetRow = typeof portfolioAllocationTargets.$inferSelect;
 export type NewPortfolioAllocationTargetRow = typeof portfolioAllocationTargets.$inferInsert;
+export type MarketDailyPointRow = typeof marketDailyPoints.$inferSelect;
+export type NewMarketDailyPointRow = typeof marketDailyPoints.$inferInsert;
+export type MarketSentimentSnapshotRow = typeof marketSentimentSnapshots.$inferSelect;
+export type NewMarketSentimentSnapshotRow = typeof marketSentimentSnapshots.$inferInsert;
+export type MarketSignalRefreshStateRow = typeof marketSignalRefreshState.$inferSelect;
+export type NewMarketSignalRefreshStateRow = typeof marketSignalRefreshState.$inferInsert;
+export type MarketSignalSettingsRow = typeof marketSignalSettings.$inferSelect;
+export type NewMarketSignalSettingsRow = typeof marketSignalSettings.$inferInsert;
 export type MarketCycleSettingsRow = typeof marketCycleSettings.$inferSelect;
 export type NewMarketCycleSettingsRow = typeof marketCycleSettings.$inferInsert;
 export type NewsSourceRow = typeof newsSources.$inferSelect;

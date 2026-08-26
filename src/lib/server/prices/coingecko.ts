@@ -1,6 +1,7 @@
 import type { AssetRecord, Currency } from '$lib/types';
-import type { PriceProvider, ProviderPrice } from './provider';
+import type { PriceProvider, ProviderDailyMarketPoint, ProviderPrice } from './provider';
 import { fetchWithResilience, readJsonResponse } from '$lib/server/http';
+import { z } from 'zod';
 
 const API_BASE = 'https://api.coingecko.com/api/v3';
 
@@ -24,6 +25,14 @@ type CoinGeckoHistoricalResponse = {
     current_price?: Record<string, number>;
   };
 };
+
+const marketChartSchema = z.object({
+  prices: z.array(z.tuple([z.number().finite().nonnegative(), z.number().finite().positive()])),
+  total_volumes: z
+    .array(z.tuple([z.number().finite().nonnegative(), z.number().finite().nonnegative()]))
+    .optional()
+    .default([])
+});
 
 function providerAsset(coin: {
   id: string;
@@ -126,5 +135,29 @@ export const coingeckoProvider: PriceProvider = {
       price: price.toString(),
       capturedAt: new Date(Date.UTC(year, parsed.getUTCMonth(), parsed.getUTCDate())).toISOString()
     };
+  },
+
+  async getDailyMarketHistory(
+    providerCoinId: string,
+    currency: Currency,
+    days: number
+  ): Promise<ProviderDailyMarketPoint[]> {
+    if (!Number.isInteger(days) || days < 1 || days > 400) {
+      throw new Error('Market history days must be an integer between 1 and 400.');
+    }
+
+    const url = new URL(`${API_BASE}/coins/${encodeURIComponent(providerCoinId)}/market_chart`);
+    url.searchParams.set('vs_currency', currency.toLowerCase());
+    url.searchParams.set('days', String(days));
+    const payload = marketChartSchema.parse(await fetchJson<unknown>(url));
+    const volumeByTimestamp = new Map(
+      payload.total_volumes.map(([timestamp, volume]) => [timestamp, volume.toString()])
+    );
+
+    return payload.prices.map(([timestamp, close]): ProviderDailyMarketPoint => ({
+      timestamp: new Date(timestamp).toISOString(),
+      close: close.toString(),
+      volume: volumeByTimestamp.get(timestamp) ?? null
+    }));
   }
 };

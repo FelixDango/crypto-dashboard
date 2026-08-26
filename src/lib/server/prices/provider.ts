@@ -6,6 +6,12 @@ export type ProviderPrice = {
   capturedAt?: string;
 };
 
+export type ProviderDailyMarketPoint = {
+  timestamp: string;
+  close: string;
+  volume: string | null;
+};
+
 export type PriceProvider = {
   id: string;
   label: string;
@@ -16,4 +22,9 @@ export type PriceProvider = {
     date: string,
     currency: Currency
   ): Promise<ProviderPrice>;
+  getDailyMarketHistory(
+    providerCoinId: string,
+    currency: Currency,
+    days: number
+  ): Promise<ProviderDailyMarketPoint[]>;
 };

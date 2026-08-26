@@ -177,7 +177,7 @@ describe('base-currency plan conversion', () => {
       })
     } as never);
 
-    expect('status' in result && result.status).toBe(400);
+    expect(result && 'status' in result ? result.status : null).toBe(400);
     expect(getAppSettings().baseCurrency).toBe('EUR');
     expect(getSavedPortfolioPlan()).toMatchObject({ currency: 'EUR', targetValue: '1000' });
     expect(db.select().from(assetLots).all()).toEqual(accountingBefore);

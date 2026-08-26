@@ -14,6 +14,9 @@ import {
   parsePortfolioPlanForm,
   planDraftFromForm
 } from '$lib/validation/planning';
+import { getPlannedAssetMarketSignals } from '$lib/server/signals/service';
+import { refreshPlannedAssetMarketSignals } from '$lib/server/signals/refresh';
+import { z } from 'zod';
 
 function actionError(error: unknown, fallback: string): string {
   if (error instanceof ZodError) {
@@ -22,10 +25,14 @@ function actionError(error: unknown, fallback: string): string {
   return getErrorMessage(error, fallback);
 }
 
-export const load: PageServerLoad = async () => ({
-  planning: await getPortfolioPlanning(),
-  baseCurrency: getAppSettings().baseCurrency
-});
+export const load: PageServerLoad = async () => {
+  const planning = await getPortfolioPlanning();
+  return {
+    planning,
+    marketSignals: getPlannedAssetMarketSignals(planning),
+    baseCurrency: getAppSettings().baseCurrency
+  };
+};
 
 export const actions: Actions = {
   save: async ({ request }) => {
@@ -68,6 +75,35 @@ export const actions: Actions = {
         error: actionError(error, 'Contribution scenario could not be calculated.'),
         intent: 'scenario' as const,
         contribution
+      });
+    }
+  },
+
+  refreshSignals: async ({ request }) => {
+    const formData = await request.formData();
+    const parsed = z.string().min(1).max(200).safeParse(formData.get('asset_id'));
+    if (!parsed.success) {
+      return fail(400, {
+        error: 'Choose a valid planned asset to refresh.',
+        intent: 'refreshSignals' as const
+      });
+    }
+    try {
+      const result = await refreshPlannedAssetMarketSignals(parsed.data);
+      return {
+        success: true,
+        intent: 'refreshSignals' as const,
+        refreshedAssetId: parsed.data,
+        sentimentWarning:
+          result.sentiment === 'failed'
+            ? 'Asset history refreshed, but global sentiment could not be updated.'
+            : null
+      };
+    } catch (error) {
+      return fail(502, {
+        error: actionError(error, 'Market signals could not be refreshed.'),
+        intent: 'refreshSignals' as const,
+        refreshedAssetId: parsed.data
       });
     }
   }
