@@ -27,6 +27,47 @@ npm run lint
 npm run build
 ```
 
+## Portfolio Planning
+
+Open `/plan` to maintain one active, private portfolio plan. A plan contains a name, a positive
+target portfolio value in the current base currency, an optional target date, and 1–50 unique asset
+targets whose positive percentages total exactly 100%. Target assets use the same public CoinGecko
+search as manual transactions and may be held or currently unheld. Clearing a plan removes only its
+planning rows; the transaction ledger and derived average-cost accounting remain untouched.
+
+Planning calculations use `decimal.js` and decimal text storage throughout:
+
+- Goal progress = current portfolio value / target portfolio value × 100. The displayed percentage
+  may exceed 100%; only the visual progress bar is capped.
+- Remaining value = max(target portfolio value − current portfolio value, 0).
+- Current allocation = asset current value / current portfolio value × 100. A zero-value portfolio
+  produces 0% current allocations without division fallback.
+- Allocation drift in percentage points = current allocation − saved target allocation.
+- Fiat value gap = saved target allocation × current portfolio value − asset current value.
+- Open holdings without a saved target remain visible with a 0% target.
+
+Missing market prices and transactions excluded by unavailable FX make portfolio totals partial.
+While partial, goal progress, allocation percentages, drift, value gaps, and contribution scenarios
+are labeled unavailable; a missing price is never treated as a zero-value holding.
+
+The contribution alignment scenario is non-persistent and informational. For a positive amount `C`
+and current portfolio value `V`, each target's desired value is `target % × (V + C)`. The scenario
+computes each positive deficit, distributes all of `C` proportionally across those deficits, and
+shows projected allocations and remaining drift. It does not calculate crypto quantities, model
+sales, create transactions, execute trades, or provide financial advice.
+
+Changing the app base currency also converts the saved plan target using a current cached or public
+EUR/USD rate. The converted target, settings change, and accounting replacement are committed in
+one SQLite transaction. If that current FX conversion is unavailable, none of those records change.
+Planning data lives in `portfolio_plans` and `portfolio_allocation_targets` in the same persistent
+SQLite Docker volume as the rest of the application.
+
+Focused verification is included in:
+
+```bash
+npx vitest run tests/planning-calculations.test.ts tests/planning-persistence.test.ts tests/db-migration.test.ts
+```
+
 ## Docker
 
 Create the Docker network shared with Nginx Proxy Manager if it does not already exist:
@@ -575,3 +616,5 @@ credentials are redacted from logged error messages.
 - Portfolio history begins when real automatic snapshots are created; past values are not backfilled.
 - Coin search and price refresh depend on CoinGecko availability and rate limits.
 - News context depends on public RSS feed availability and remains optional context, not causality.
+- Portfolio planning supports one active plan, average-cost portfolio inputs, and contribution-only
+  mathematical scenarios. It does not optimize portfolios or recommend transactions.

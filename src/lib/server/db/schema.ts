@@ -242,6 +242,39 @@ export const settings = sqliteTable('settings', {
   value: text('value').notNull()
 });
 
+export const portfolioPlans = sqliteTable('portfolio_plans', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+  targetValue: text('target_value').notNull(),
+  currency: text('currency').$type<Currency>().notNull(),
+  targetDate: text('target_date'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull()
+});
+
+export const portfolioAllocationTargets = sqliteTable(
+  'portfolio_allocation_targets',
+  {
+    id: text('id').primaryKey(),
+    planId: integer('plan_id')
+      .notNull()
+      .references(() => portfolioPlans.id, { onDelete: 'cascade' }),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id),
+    targetPercentage: text('target_percentage').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull()
+  },
+  (table) => ({
+    planAssetUnique: uniqueIndex('portfolio_allocation_targets_plan_asset_unique').on(
+      table.planId,
+      table.assetId
+    ),
+    planIndex: index('portfolio_allocation_targets_plan_idx').on(table.planId)
+  })
+);
+
 export const marketCycleSettings = sqliteTable('market_cycle_settings', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -381,6 +414,10 @@ export type NewLotDisposalRow = typeof lotDisposals.$inferInsert;
 export type FxRateRow = typeof fxRates.$inferSelect;
 export type ImportBatchRow = typeof importBatches.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;
+export type PortfolioPlanRow = typeof portfolioPlans.$inferSelect;
+export type NewPortfolioPlanRow = typeof portfolioPlans.$inferInsert;
+export type PortfolioAllocationTargetRow = typeof portfolioAllocationTargets.$inferSelect;
+export type NewPortfolioAllocationTargetRow = typeof portfolioAllocationTargets.$inferInsert;
 export type MarketCycleSettingsRow = typeof marketCycleSettings.$inferSelect;
 export type NewMarketCycleSettingsRow = typeof marketCycleSettings.$inferInsert;
 export type NewsSourceRow = typeof newsSources.$inferSelect;

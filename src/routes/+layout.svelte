@@ -11,6 +11,7 @@
     Lightbulb,
     ListChecks,
     Newspaper,
+    Target,
     Settings,
     Shield
   } from '@lucide/svelte';
@@ -33,6 +34,7 @@
   const nav = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
     { href: '/analytics', label: 'Analytics', icon: Activity },
+    { href: '/plan', label: 'Plan', icon: Target },
     { href: '/insights', label: 'Insights', icon: Lightbulb },
     { href: '/news', label: 'News', icon: Newspaper },
     { href: '/transactions', label: 'Transactions', icon: ListChecks },

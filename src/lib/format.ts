@@ -30,6 +30,10 @@ export function formatPercent(value: string | number): string {
   return `${asNumber(value).toFixed(2)}%`;
 }
 
+export function formatPercentagePoints(value: string | number): string {
+  return `${asNumber(value).toFixed(2)} pp`;
+}
+
 export function formatCrypto(value: string | number): string {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 8

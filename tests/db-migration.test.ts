@@ -25,6 +25,8 @@ describe('database migrations', () => {
     expect(tables).toContain('fx_rates');
     expect(tables).toContain('import_batches');
     expect(tables).toContain('settings');
+    expect(tables).toContain('portfolio_plans');
+    expect(tables).toContain('portfolio_allocation_targets');
     expect(tables).toContain('news_sources');
     expect(tables).toContain('news_articles');
     expect(tables).toContain('news_article_asset_matches');
@@ -69,6 +71,21 @@ describe('database migrations', () => {
       .map((row) => (row as { name: string }).name);
     expect(newsArticleColumns).toContain('sentiment_label');
     expect(newsArticleColumns).toContain('raw_themes_json');
+
+    const planningTargetIndexes = sqlite
+      .prepare("PRAGMA index_list('portfolio_allocation_targets')")
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(planningTargetIndexes).toContain('portfolio_allocation_targets_plan_asset_unique');
+
+    const planningForeignKeys = sqlite
+      .prepare('PRAGMA foreign_key_list(portfolio_allocation_targets)')
+      .all() as Array<{
+      table: string;
+    }>;
+    expect(planningForeignKeys.map((row) => row.table)).toEqual(
+      expect.arrayContaining(['portfolio_plans', 'assets'])
+    );
 
     const newsSourceIds = sqlite
       .prepare('SELECT id FROM news_sources ORDER BY id')

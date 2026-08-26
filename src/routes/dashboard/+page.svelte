@@ -1,16 +1,18 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
-  import { Camera, Plus, RefreshCw, TriangleAlert } from '@lucide/svelte';
+  import { ArrowRight, Camera, Plus, RefreshCw, Target, TriangleAlert } from '@lucide/svelte';
   import type { EChartsOption } from 'echarts';
   import Chart from '$lib/components/Chart.svelte';
   import CycleCard from '$lib/components/CycleCard.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
-  import { formatCurrency, formatPercent, signedClass } from '$lib/format';
+  import { formatCurrency, formatPercentagePoints, formatPercent, signedClass } from '$lib/format';
   import type { CycleProgress, CycleWindow } from '$lib/server/insights/market-cycle';
   import type { PortfolioOverview, SnapshotRange } from '$lib/types';
+  import type { PortfolioPlanning } from '$lib/planning/types';
 
   export let data: {
     overview: PortfolioOverview;
+    planning: PortfolioPlanning;
     cycle: CycleProgress | null;
     cycleWindows: CycleWindow[];
     snapshotRange: SnapshotRange;
@@ -151,6 +153,35 @@
       </div>
     </div>
   {/if}
+
+  <a class="card planning-summary" href="/plan">
+    <span class="planning-icon"><Target size={19} /></span>
+    {#if data.planning.plan && data.planning.goal}
+      <span class="planning-copy">
+        <strong>{data.planning.plan.name}</strong>
+        {#if data.planning.goal.progressPercentage !== null}
+          <span>
+            {formatPercent(data.planning.goal.progressPercentage)} of
+            {formatCurrency(data.planning.goal.targetValue, data.planning.plan.currency)}
+            {data.planning.largestDrift
+              ? ` · largest drift ${data.planning.largestDrift.symbol} ${formatPercentagePoints(data.planning.largestDrift.driftPercentagePoints)}`
+              : ''}
+          </span>
+        {:else}
+          <span>Planning is partial until missing price or FX data recovers.</span>
+        {/if}
+      </span>
+      <span class:positive={data.planning.completeness.complete} class="planning-status">
+        {data.planning.completeness.complete ? 'On current data' : 'Partial data'}
+      </span>
+    {:else}
+      <span class="planning-copy">
+        <strong>Portfolio plan</strong>
+        <span>Set one value goal and your own allocation targets.</span>
+      </span>
+    {/if}
+    <ArrowRight size={18} class="planning-arrow" />
+  </a>
 
   <div class="grid metric-grid dashboard-metrics">
     <article class="card metric-card">
@@ -369,6 +400,51 @@
     gap: 0.25rem;
   }
 
+  .planning-summary {
+    align-items: center;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    margin-bottom: 1rem;
+    padding: 0.8rem 0.9rem;
+  }
+
+  .planning-summary:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-soft);
+  }
+
+  .planning-icon {
+    align-items: center;
+    background: rgba(45, 212, 191, 0.12);
+    border-radius: 8px;
+    color: var(--accent);
+    display: flex;
+    height: 2.25rem;
+    justify-content: center;
+    width: 2.25rem;
+  }
+
+  .planning-copy {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .planning-copy span,
+  .planning-status {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
+  .planning-status {
+    white-space: nowrap;
+  }
+
+  .planning-arrow {
+    color: var(--muted);
+  }
+
   .toolbar {
     display: flex;
     gap: 0.5rem;
@@ -471,6 +547,14 @@
   }
 
   @media (max-width: 820px) {
+    .planning-summary {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .planning-status {
+      display: none;
+    }
+
     .dashboard-metrics {
       grid-template-columns: 1fr;
     }

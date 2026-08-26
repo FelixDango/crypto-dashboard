@@ -8,13 +8,16 @@ import {
   SNAPSHOT_RANGES
 } from '$lib/server/portfolio/snapshots';
 import { generateCycleWindows, getCycleProgress } from '$lib/server/insights/market-cycle';
+import { getPortfolioPlanning } from '$lib/server/planning/service';
 
 export const load: PageServerLoad = async ({ url }) => {
   const snapshotRange = parseSnapshotRange(url.searchParams.get('range'));
   await ensureInitialPortfolioSnapshot();
+  const overview = await getPortfolioOverview({ snapshotRange });
 
   return {
-    overview: await getPortfolioOverview({ snapshotRange }),
+    overview,
+    planning: await getPortfolioPlanning(overview),
     cycle: getCycleProgress(new Date()),
     cycleWindows: generateCycleWindows(
       new Date('2022-11-08T00:00:00.000Z'),

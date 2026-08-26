@@ -10,6 +10,10 @@ import {
 import { serializePortfolioMutation } from '$lib/server/portfolio/mutation';
 import { listTransactionsWithAssets } from '$lib/server/transactions';
 import { getErrorMessage } from '$lib/server/errors';
+import {
+  applyPlanCurrencyConversion,
+  preparePlanCurrencyConversion
+} from '$lib/server/planning/service';
 
 export function load() {
   return {
@@ -39,9 +43,13 @@ export const actions = {
           listTransactionsWithAssets(),
           parsed.data.baseCurrency
         );
+        const planCurrencyConversion = await preparePlanCurrencyConversion(
+          parsed.data.baseCurrency
+        );
         getSqlite().transaction(() => {
           updateAppSettings(parsed.data);
           replacePortfolioAccounting(plan);
+          applyPlanCurrencyConversion(planCurrencyConversion);
         })();
       });
     } catch (error) {
