@@ -18,7 +18,7 @@ import { assets, portfolioSnapshots, type PortfolioSnapshotRow } from '$lib/serv
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { refreshCurrentPricesForAssets } from '$lib/server/prices/cache';
 import { getAppSettings } from '$lib/server/settings';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SEVEN_DAY_MIN_HOURLY_POINTS = 24;
@@ -124,7 +124,7 @@ export async function createPortfolioSnapshot(
     return { result: 'already_exists', snapshotType, bucket, snapshot: existing };
   }
 
-  const transactions = listTransactionsWithAssets();
+  const transactions = listCurrentTransactionsWithAssets(now);
   const normalizedTransactions = await normalizeTransactions(transactions, settings.baseCurrency);
   const preliminary = calculatePortfolio(normalizedTransactions, [], settings.baseCurrency);
   const priceAssets = activeAssetRecords(preliminary.holdings);

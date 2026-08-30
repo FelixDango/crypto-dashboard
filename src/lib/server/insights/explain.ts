@@ -9,7 +9,7 @@ import {
 import { getDataConfidence } from '$lib/server/insights/data-confidence';
 import { getCycleProgress } from '$lib/server/insights/market-cycle';
 import { getAppSettings } from '$lib/server/settings';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { moneyText } from '$lib/portfolio/decimal';
 
@@ -65,7 +65,7 @@ async function transactionDrivers(range: ExplainRange, now: Date): Promise<Expla
   const start = rangeStart(range, now).toISOString();
   const settings = getAppSettings();
   const normalized = await normalizeTransactions(
-    listTransactionsWithAssets(),
+    listCurrentTransactionsWithAssets(now),
     settings.baseCurrency
   );
 

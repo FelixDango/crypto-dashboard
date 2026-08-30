@@ -5,6 +5,7 @@ import type {
   TransactionRecord
 } from '$lib/types';
 import { moneyText, quantityText, rateText } from './decimal';
+import { orderTransactions } from './transactionOrder';
 
 export type AverageCostTransaction = TransactionRecord | NormalizedTransactionRecord;
 
@@ -91,13 +92,7 @@ function transactionFxSource(transaction: AverageCostTransaction): string {
 export function chronologicalAverageCostTransactions<T extends AverageCostTransaction>(
   transactions: T[]
 ): T[] {
-  return [...transactions].sort((a, b) => {
-    const byDate = a.transactionDate.localeCompare(b.transactionDate);
-    if (byDate !== 0) return byDate;
-    const byCreated = a.createdAt.localeCompare(b.createdAt);
-    if (byCreated !== 0) return byCreated;
-    return 0;
-  });
+  return orderTransactions(transactions);
 }
 
 export function buildAverageCostLedger(

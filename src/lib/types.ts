@@ -154,6 +154,7 @@ export type PortfolioOverview = {
   portfolioSnapshotSeries: PortfolioSnapshotSeries;
   priceWarnings: string[];
   fxWarnings: string[];
+  dataHealthWarnings?: string[];
   bestPerformer: HoldingSummary | null;
   worstPerformer: HoldingSummary | null;
 };

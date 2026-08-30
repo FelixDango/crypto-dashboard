@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { z } from 'zod';
 import type { Currency } from '$lib/types';
 import type { TransactionInput } from '$lib/server/transactions';
+import { isFutureTransactionDate } from '$lib/portfolio/transactionDate';
 
 const currencies = ['EUR', 'USD'] as const;
 
@@ -74,7 +75,7 @@ function cleanText(value: unknown, maxLength: number): string | null {
   return cleaned.slice(0, maxLength);
 }
 
-export const transactionInputSchema = z.object({
+const transactionInputBaseSchema = z.object({
   asset: z.object({
     provider: z.string().trim().default('coingecko'),
     providerCoinId: z
@@ -118,10 +119,32 @@ export const transactionInputSchema = z.object({
     .transform((value) => cleanText(value, 1000))
 });
 
-export function parseTransactionForm(formData: FormData): TransactionInput {
+export function createTransactionInputSchema(now: Date = new Date()) {
+  return transactionInputBaseSchema.superRefine((input, context) => {
+    if (isFutureTransactionDate(input.transactionDate, now)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['transactionDate'],
+        message: 'Transaction date cannot be later than today (UTC).'
+      });
+    }
+  });
+}
+
+export const transactionInputSchema = transactionInputBaseSchema.superRefine((input, context) => {
+  if (isFutureTransactionDate(input.transactionDate, new Date())) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['transactionDate'],
+      message: 'Transaction date cannot be later than today (UTC).'
+    });
+  }
+});
+
+export function parseTransactionForm(formData: FormData, now: Date = new Date()): TransactionInput {
   const feeCurrency =
     formData.get('fee_currency')?.toString() || formData.get('fiat_currency')?.toString();
-  const parsed = transactionInputSchema.parse({
+  const parsed = createTransactionInputSchema(now).parse({
     asset: {
       provider: formData.get('asset_provider')?.toString() || 'coingecko',
       providerCoinId: formData.get('asset_provider_coin_id')?.toString(),

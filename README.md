@@ -27,6 +27,19 @@ npm run lint
 npm run build
 ```
 
+## Transaction Correctness
+
+All ledger-sensitive code uses one deterministic ascending order: `transactionDate`, then
+`createdAt`, then `id`. The final identifier tie-breaker is mandatory even when both timestamps are
+identical, so average-cost holdings, realized P/L, cost basis, ROI, oversell checks, analytics, and
+accounting rebuilds do not depend on SQLite return order or JavaScript sort stability.
+
+Transaction eligibility uses **UTC calendar dates**. Today in UTC is accepted; any later UTC date is
+rejected by form and CSV validation and again by the persistence service. Legacy future-dated rows
+remain visible and editable in the transaction ledger, but are excluded from current holdings,
+totals, snapshots, analytics, held-asset context, and accounting rebuilds until their date arrives.
+The dashboard shows the number of rows currently excluded for this reason.
+
 ## Portfolio Planning
 
 Open `/plan` to maintain one active, private portfolio plan. A plan contains a name, a positive

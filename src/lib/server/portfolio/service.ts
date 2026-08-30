@@ -9,7 +9,10 @@ import { db } from '$lib/server/db/client';
 import { count } from 'drizzle-orm';
 import Decimal from 'decimal.js';
 import { assets, transactions } from '$lib/server/db/schema';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import {
+  countFutureTransactions,
+  listCurrentTransactionsWithAssets
+} from '$lib/server/transactions';
 import { getAppSettings } from '$lib/server/settings';
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { getCachedPricesForAssets } from '$lib/server/prices/cache';
@@ -29,17 +32,18 @@ function activeAssets(holdings: HoldingSummary[]) {
 }
 
 export async function getPortfolioOverview(
-  options: { snapshotRange?: SnapshotRange } = {}
+  options: { snapshotRange?: SnapshotRange; now?: Date } = {}
 ): Promise<PortfolioOverview> {
   return (await getPortfolioOverviewContext(options)).overview;
 }
 
 export async function getPortfolioOverviewContext(
-  options: { snapshotRange?: SnapshotRange } = {}
+  options: { snapshotRange?: SnapshotRange; now?: Date } = {}
 ): Promise<{ overview: PortfolioOverview; normalizedTransactions: NormalizedTransactionRecord[] }> {
-  await ensurePortfolioAccounting();
+  const now = options.now ?? new Date();
+  await ensurePortfolioAccounting(now);
   const settings = getAppSettings();
-  const transactionsWithAssets = listTransactionsWithAssets();
+  const transactionsWithAssets = listCurrentTransactionsWithAssets(now);
   const normalizedTransactions = await normalizeTransactions(
     transactionsWithAssets,
     settings.baseCurrency
@@ -57,9 +61,17 @@ export async function getPortfolioOverviewContext(
   const fxWarnings = normalizedTransactions.flatMap((transaction) =>
     transaction.fxWarning ? [transaction.fxWarning] : []
   );
+  const futureTransactionCount = countFutureTransactions(now);
+  const dataHealthWarnings =
+    futureTransactionCount > 0
+      ? [
+          `${futureTransactionCount} future-dated transaction${futureTransactionCount === 1 ? '' : 's'} excluded until its UTC calendar date arrives.`
+        ]
+      : [];
   const portfolioSnapshotSeries = listPortfolioSnapshotSeries(
     settings.baseCurrency,
-    options.snapshotRange ?? DEFAULT_SNAPSHOT_RANGE
+    options.snapshotRange ?? DEFAULT_SNAPSHOT_RANGE,
+    now
   );
 
   return {
@@ -69,7 +81,8 @@ export async function getPortfolioOverviewContext(
       portfolioSeries: portfolioSnapshotSeries.points,
       portfolioSnapshotSeries,
       priceWarnings,
-      fxWarnings
+      fxWarnings,
+      dataHealthWarnings
     }
   };
 }

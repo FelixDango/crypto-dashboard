@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { db } from '$lib/server/db/client';
 import { assets, transactions, type AssetRow } from '$lib/server/db/schema';
+import { isFutureTransactionDate } from '$lib/portfolio/transactionDate';
 
 export type NewsAssetMatchType = 'symbol' | 'name' | 'alias' | 'manual';
 
@@ -193,7 +194,11 @@ export function listHeldAssetsForMatching(): AssetRow[] {
   const assetRows = db.select().from(assets).all();
   const balances = new Map<string, Decimal>();
 
-  for (const row of db.select().from(transactions).all()) {
+  for (const row of db
+    .select()
+    .from(transactions)
+    .all()
+    .filter((transaction) => !isFutureTransactionDate(transaction.transactionDate))) {
     const current = balances.get(row.assetId) ?? new Decimal(0);
     const quantity = asDecimal(row.quantity);
     balances.set(

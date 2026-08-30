@@ -1,9 +1,10 @@
 import { parse } from 'csv-parse/sync';
 import { stringify } from 'csv-stringify/sync';
+import { ZodError } from 'zod';
 import { eq } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Currency, TransactionRecord } from '$lib/types';
-import { transactionInputSchema } from '$lib/validation/transaction';
+import { createTransactionInputSchema, transactionInputSchema } from '$lib/validation/transaction';
 import { db, getSqlite } from './db/client';
 import { importBatches, portfolioSnapshots, transactions } from './db/schema';
 import {
@@ -12,7 +13,10 @@ import {
   preparePortfolioAccounting,
   replacePortfolioAccounting
 } from './portfolio/accounting';
-import { listTransactionsWithAssets, prepareTransactionForPersistence } from './transactions';
+import {
+  listCurrentTransactionsWithAssets,
+  prepareTransactionForPersistence
+} from './transactions';
 import { serializePortfolioMutation } from './portfolio/mutation';
 
 const headers = [
@@ -147,7 +151,7 @@ function rowIsDuplicate(hash: string): boolean {
   );
 }
 
-function parseTransactionsCsv(content: string): ParsedCsvRow[] {
+function parseTransactionsCsv(content: string, now: Date = new Date()): ParsedCsvRow[] {
   if (Buffer.byteLength(content, 'utf8') > MAX_CSV_BYTES) {
     throw new Error('CSV import is limited to 5 MB.');
   }
@@ -164,23 +168,34 @@ function parseTransactionsCsv(content: string): ParsedCsvRow[] {
   }
 
   return rows.map((row, index) => {
-    const input = transactionInputSchema.parse({
-      asset: {
-        provider: importCell(row.asset_provider || 'coingecko'),
-        providerCoinId: importCell(row.asset_provider_coin_id),
-        symbol: importCell(row.asset_symbol),
-        name: importCell(row.asset_name),
-        imageUrl: ''
-      },
-      type: row.type,
-      quantity: row.quantity,
-      fiatAmount: row.fiat_amount,
-      fiatCurrency: row.fiat_currency,
-      feeAmount: row.fee_amount || null,
-      feeCurrency: row.fee_currency || row.fiat_currency,
-      transactionDate: row.transaction_date,
-      notes: importCell(row.notes)
-    });
+    let input: ReturnType<typeof transactionInputSchema.parse>;
+    try {
+      input = createTransactionInputSchema(now).parse({
+        asset: {
+          provider: importCell(row.asset_provider || 'coingecko'),
+          providerCoinId: importCell(row.asset_provider_coin_id),
+          symbol: importCell(row.asset_symbol),
+          name: importCell(row.asset_name),
+          imageUrl: ''
+        },
+        type: row.type,
+        quantity: row.quantity,
+        fiatAmount: row.fiat_amount,
+        fiatCurrency: row.fiat_currency,
+        feeAmount: row.fee_amount || null,
+        feeCurrency: row.fee_currency || row.fiat_currency,
+        transactionDate: row.transaction_date,
+        notes: importCell(row.notes)
+      });
+    } catch (error) {
+      const message =
+        error instanceof ZodError
+          ? [...new Set(error.issues.map((issue) => issue.message))].join(' ')
+          : error instanceof Error
+            ? error.message
+            : 'Invalid transaction row.';
+      throw new Error(`Row ${index + 1}: ${message}`);
+    }
 
     return {
       index: index + 1,
@@ -277,8 +292,8 @@ export function exportPortfolioSnapshotsToCsv(): string {
   return stringify(records, { header: true, columns: snapshotHeaders });
 }
 
-export function previewTransactionsCsv(content: string): CsvPreview {
-  const parsed = parseTransactionsCsv(content);
+export function previewTransactionsCsv(content: string, now: Date = new Date()): CsvPreview {
+  const parsed = parseTransactionsCsv(content, now);
   const seen = new Set<string>();
   let duplicateRows = 0;
 
@@ -310,10 +325,11 @@ export function previewTransactionsCsv(content: string): CsvPreview {
 
 export async function importTransactionsFromCsv(
   content: string,
-  filename: string | null = null
+  filename: string | null = null,
+  now: Date = new Date()
 ): Promise<{ imported: number; duplicates: number; batchId: string }> {
   return serializePortfolioMutation(async () => {
-    const parsed = parseTransactionsCsv(content);
+    const parsed = parseTransactionsCsv(content, now);
     const seen = new Set<string>();
     const importable = parsed.filter((row) => {
       const duplicate = seen.has(row.hash) || rowIsDuplicate(row.hash);
@@ -329,13 +345,15 @@ export async function importTransactionsFromCsv(
           importBatchId: batchId,
           rowHash: row.hash
         },
-        false
+        false,
+        now
       )
     );
-    const plan = await preparePortfolioAccounting([
-      ...listTransactionsWithAssets(),
-      ...prepared.map((item) => item.record)
-    ]);
+    const plan = await preparePortfolioAccounting(
+      [...listCurrentTransactionsWithAssets(now), ...prepared.map((item) => item.record)],
+      undefined,
+      now
+    );
 
     getSqlite().transaction(() => {
       db.insert(importBatches)

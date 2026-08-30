@@ -9,7 +9,7 @@ import {
   replacePortfolioAccounting
 } from '$lib/server/portfolio/accounting';
 import { serializePortfolioMutation } from '$lib/server/portfolio/mutation';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
 import { getErrorMessage } from '$lib/server/errors';
 import {
   applyPlanCurrencyConversion,
@@ -44,7 +44,7 @@ export const actions: Actions = {
     try {
       await serializePortfolioMutation(async () => {
         const plan = await preparePortfolioAccounting(
-          listTransactionsWithAssets(),
+          listCurrentTransactionsWithAssets(),
           parsed.data.baseCurrency
         );
         const planCurrencyConversion = await preparePlanCurrencyConversion(

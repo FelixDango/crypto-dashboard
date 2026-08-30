@@ -34,7 +34,11 @@
   $: currency = overview.totals.baseCurrency;
   $: snapshotSeries = overview.portfolioSnapshotSeries;
   $: selectedRange = data.snapshotRange;
-  $: warnings = [...overview.priceWarnings, ...overview.fxWarnings];
+  $: warnings = [
+    ...overview.priceWarnings,
+    ...overview.fxWarnings,
+    ...(overview.dataHealthWarnings ?? [])
+  ];
   $: alertMessages = [refreshError, form?.snapshotError, ...warnings].filter(
     (message): message is string => Boolean(message)
   );

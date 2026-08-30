@@ -10,6 +10,8 @@ import type {
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { buildAverageCostLedger } from '$lib/portfolio/averageCost';
 import { quantityText } from '$lib/portfolio/decimal';
+import { orderTransactions } from '$lib/portfolio/transactionOrder';
+import { isFutureTransactionDate } from '$lib/portfolio/transactionDate';
 import { getAppSettings } from '$lib/server/settings';
 import { db, getSqlite } from '$lib/server/db/client';
 import { serializePortfolioMutation } from '$lib/server/portfolio/mutation';
@@ -79,23 +81,6 @@ function toText(value: Decimal): string {
   return quantityText(value);
 }
 
-function compareChronological(
-  a: { transactionDate: string; createdAt: string; id: string },
-  b: { transactionDate: string; createdAt: string; id: string }
-): number {
-  const byDate = a.transactionDate.localeCompare(b.transactionDate);
-  if (byDate !== 0) return byDate;
-  const byCreated = a.createdAt.localeCompare(b.createdAt);
-  if (byCreated !== 0) return byCreated;
-  return a.id.localeCompare(b.id);
-}
-
-function chronological<T extends { transactionDate: string; createdAt: string; id: string }>(
-  rows: T[]
-): T[] {
-  return [...rows].sort(compareChronological);
-}
-
 function mapAsset(row: AssetRow): AssetRecord {
   return {
     id: row.id,
@@ -131,7 +116,7 @@ function mapTransaction(row: TransactionRow, asset: AssetRecord | null): Transac
   };
 }
 
-function listTransactionsChronologicalWithAssets(): TransactionRecord[] {
+function listTransactionsChronologicalWithAssets(now: Date = new Date()): TransactionRecord[] {
   const assetById = new Map(
     db
       .select()
@@ -139,11 +124,12 @@ function listTransactionsChronologicalWithAssets(): TransactionRecord[] {
       .all()
       .map((asset) => [asset.id, mapAsset(asset)])
   );
-  return chronological(
+  return orderTransactions(
     db
       .select()
       .from(transactions)
       .all()
+      .filter((transaction) => !isFutureTransactionDate(transaction.transactionDate, now))
       .map((transaction) => mapTransaction(transaction, assetById.get(transaction.assetId) ?? null))
   );
 }
@@ -162,7 +148,7 @@ function availableMessage(
 export function assertNoNegativeHoldings(rows: AccountingBalanceTransaction[]): void {
   const balances = new Map<string, Decimal>();
 
-  for (const transaction of chronological(rows)) {
+  for (const transaction of orderTransactions(rows)) {
     const quantity = asDecimal(transaction.quantity);
     const current = balances.get(transaction.assetId) ?? new Decimal(0);
 
@@ -227,7 +213,8 @@ function clearAccountingTables(): void {
 
 export async function preparePortfolioAccounting(
   records: TransactionRecord[],
-  baseCurrency: Currency = getAppSettings().baseCurrency
+  baseCurrency: Currency = getAppSettings().baseCurrency,
+  now: Date = new Date()
 ): Promise<AccountingPlan> {
   const normalized = await normalizeTransactions(records, baseCurrency);
   const incomplete = normalized.filter((transaction) => !transaction.fxComplete);
@@ -236,7 +223,7 @@ export async function preparePortfolioAccounting(
       `Accounting rebuild deferred because ${incomplete.length} transaction${incomplete.length === 1 ? '' : 's'} have incomplete FX data.`
     );
   }
-  return buildAccountingPlan(normalized, baseCurrency, new Date().toISOString());
+  return buildAccountingPlan(normalized, baseCurrency, now.toISOString());
 }
 
 export function replacePortfolioAccounting(plan: AccountingPlan): void {
@@ -245,7 +232,7 @@ export function replacePortfolioAccounting(plan: AccountingPlan): void {
   if (plan.disposals.length > 0) db.insert(lotDisposals).values(plan.disposals).run();
 }
 
-export async function rebuildPortfolioAccounting(): Promise<{
+export async function rebuildPortfolioAccounting(now: Date = new Date()): Promise<{
   method: 'average_cost';
   version: 1;
   positions: number;
@@ -254,8 +241,8 @@ export async function rebuildPortfolioAccounting(): Promise<{
 }> {
   return serializePortfolioMutation(async () => {
     const settings = getAppSettings();
-    const allTransactions = listTransactionsChronologicalWithAssets();
-    const plan = await preparePortfolioAccounting(allTransactions, settings.baseCurrency);
+    const allTransactions = listTransactionsChronologicalWithAssets(now);
+    const plan = await preparePortfolioAccounting(allTransactions, settings.baseCurrency, now);
 
     getSqlite().transaction(() => {
       replacePortfolioAccounting(plan);
@@ -271,8 +258,12 @@ export async function rebuildPortfolioAccounting(): Promise<{
   });
 }
 
-export async function ensurePortfolioAccounting(): Promise<void> {
-  const transactionCount = db.select().from(transactions).all().length;
+export async function ensurePortfolioAccounting(now: Date = new Date()): Promise<void> {
+  const transactionCount = db
+    .select()
+    .from(transactions)
+    .all()
+    .filter((transaction) => !isFutureTransactionDate(transaction.transactionDate, now)).length;
   const lotCount = db.select().from(assetLots).all().length;
   const disposalCount = db.select().from(lotDisposals).all().length;
 
@@ -285,7 +276,7 @@ export async function ensurePortfolioAccounting(): Promise<void> {
 
   if (lotCount === 0) {
     try {
-      await rebuildPortfolioAccounting();
+      await rebuildPortfolioAccounting(now);
     } catch (error) {
       if (!(error instanceof AccountingDataIncompleteError)) throw error;
     }

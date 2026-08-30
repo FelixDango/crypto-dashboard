@@ -41,7 +41,7 @@ import { portfolioSnapshots, type PortfolioSnapshotRow } from '$lib/server/db/sc
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { getPortfolioOverview } from '$lib/server/portfolio/service';
 import { getAppSettings } from '$lib/server/settings';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
 import { moneyText } from '$lib/portfolio/decimal';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -330,10 +330,13 @@ export async function getAnalyticsSummary(
   const settings = getAppSettings();
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
   const generatedAt = (options.now ?? new Date()).toISOString();
-  const overview = options.overview ?? (await getPortfolioOverview());
+  const overview = options.overview ?? (await getPortfolioOverview({ now: options.now }));
   const normalizedTransactions =
     options.normalizedTransactions ??
-    (await normalizeTransactions(listTransactionsWithAssets(), baseCurrency));
+    (await normalizeTransactions(
+      listCurrentTransactionsWithAssets(options.now ?? new Date()),
+      baseCurrency
+    ));
   const completeTransactions = normalizedTransactions.filter(
     (transaction) => transaction.fxComplete
   );
@@ -458,13 +461,20 @@ export function getAnalyticsDrawdown(
 }
 
 export async function getAnalyticsMonthly(
-  options: { baseCurrency?: Currency; normalizedTransactions?: NormalizedTransactionRecord[] } = {}
+  options: {
+    baseCurrency?: Currency;
+    now?: Date;
+    normalizedTransactions?: NormalizedTransactionRecord[];
+  } = {}
 ): Promise<AnalyticsMonthlyResponse> {
   const settings = getAppSettings();
   const baseCurrency = options.baseCurrency ?? settings.baseCurrency;
   const normalizedTransactions =
     options.normalizedTransactions ??
-    (await normalizeTransactions(listTransactionsWithAssets(), baseCurrency));
+    (await normalizeTransactions(
+      listCurrentTransactionsWithAssets(options.now ?? new Date()),
+      baseCurrency
+    ));
   const completeTransactions = normalizedTransactions.filter(
     (transaction) => transaction.fxComplete
   );

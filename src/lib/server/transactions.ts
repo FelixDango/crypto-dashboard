@@ -12,6 +12,10 @@ import {
   type AccountingBalanceTransaction
 } from './portfolio/accounting';
 import { serializePortfolioMutation } from './portfolio/mutation';
+import {
+  assertTransactionIsCurrent,
+  isFutureTransactionDate
+} from '$lib/portfolio/transactionDate';
 
 export type TransactionInput = {
   asset: AssetInput;
@@ -74,7 +78,11 @@ export function listTransactions(): TransactionRecord[] {
   return db
     .select()
     .from(transactions)
-    .orderBy(desc(transactions.transactionDate), desc(transactions.createdAt))
+    .orderBy(
+      desc(transactions.transactionDate),
+      desc(transactions.createdAt),
+      desc(transactions.id)
+    )
     .all()
     .map(mapTransaction);
 }
@@ -84,12 +92,28 @@ export function listTransactionsWithAssets(): TransactionRecord[] {
     .select({ transaction: transactions, asset: assets })
     .from(transactions)
     .leftJoin(assets, eq(transactions.assetId, assets.id))
-    .orderBy(desc(transactions.transactionDate), desc(transactions.createdAt))
+    .orderBy(
+      desc(transactions.transactionDate),
+      desc(transactions.createdAt),
+      desc(transactions.id)
+    )
     .all()
     .map((row) => ({
       ...mapTransaction(row.transaction),
       asset: row.asset ? mapAsset(row.asset) : null
     }));
+}
+
+export function listCurrentTransactionsWithAssets(now: Date = new Date()): TransactionRecord[] {
+  return listTransactionsWithAssets().filter(
+    (transaction) => !isFutureTransactionDate(transaction.transactionDate, now)
+  );
+}
+
+export function countFutureTransactions(now: Date = new Date()): number {
+  return listTransactions().filter((transaction) =>
+    isFutureTransactionDate(transaction.transactionDate, now)
+  ).length;
 }
 
 export function getTransaction(id: string): TransactionRecord | null {
@@ -111,12 +135,15 @@ function toBalanceTransaction(row: TransactionRow): AccountingBalanceTransaction
 
 function assertMutationDoesNotOversell(
   proposed?: AccountingBalanceTransaction,
-  excludeTransactionId?: string
+  excludeTransactionId?: string,
+  now: Date = new Date()
 ): void {
   const query = excludeTransactionId
     ? db.select().from(transactions).where(ne(transactions.id, excludeTransactionId)).all()
     : db.select().from(transactions).all();
-  const rows = query.map(toBalanceTransaction);
+  const rows = query
+    .filter((row) => !isFutureTransactionDate(row.transactionDate, now))
+    .map(toBalanceTransaction);
 
   if (proposed) rows.push(proposed);
   assertNoNegativeHoldings(rows);
@@ -129,22 +156,28 @@ export type PreparedTransaction = {
 
 export function prepareTransactionForPersistence(
   input: TransactionInput,
-  validateBalance = true
+  validateBalance = true,
+  nowDate: Date = new Date()
 ): PreparedTransaction {
+  assertTransactionIsCurrent(input.transactionDate, nowDate);
   const now = nextCreatedAt();
   const assetId = createAssetId(input.asset.provider ?? 'coingecko', input.asset.providerCoinId);
   const id = randomUUID();
 
   if (validateBalance) {
-    assertMutationDoesNotOversell({
-      id,
-      assetId,
-      assetSymbol: input.asset.symbol,
-      type: input.type,
-      quantity: input.quantity,
-      transactionDate: input.transactionDate,
-      createdAt: now
-    });
+    assertMutationDoesNotOversell(
+      {
+        id,
+        assetId,
+        assetSymbol: input.asset.symbol,
+        type: input.type,
+        quantity: input.quantity,
+        transactionDate: input.transactionDate,
+        createdAt: now
+      },
+      undefined,
+      nowDate
+    );
   }
 
   const asset = upsertAsset(input.asset);
@@ -171,16 +204,26 @@ export function prepareTransactionForPersistence(
   return { row, record: { ...mapTransaction(row), asset } };
 }
 
-export function createTransactionWithoutAccounting(input: TransactionInput): TransactionRecord {
-  const { row, record } = prepareTransactionForPersistence(input);
+export function createTransactionWithoutAccounting(
+  input: TransactionInput,
+  now: Date = new Date()
+): TransactionRecord {
+  const { row, record } = prepareTransactionForPersistence(input, true, now);
   db.insert(transactions).values(row).run();
   return record;
 }
 
-export async function createTransaction(input: TransactionInput): Promise<TransactionRecord> {
+export async function createTransaction(
+  input: TransactionInput,
+  now: Date = new Date()
+): Promise<TransactionRecord> {
   return serializePortfolioMutation(async () => {
-    const { row, record } = prepareTransactionForPersistence(input);
-    const plan = await preparePortfolioAccounting([...listTransactionsWithAssets(), record]);
+    const { row, record } = prepareTransactionForPersistence(input, true, now);
+    const plan = await preparePortfolioAccounting(
+      [...listCurrentTransactionsWithAssets(now), record],
+      undefined,
+      now
+    );
 
     getSqlite().transaction(() => {
       db.insert(transactions).values(row).run();
@@ -192,11 +235,13 @@ export async function createTransaction(input: TransactionInput): Promise<Transa
 
 export async function updateTransaction(
   id: string,
-  input: TransactionInput
+  input: TransactionInput,
+  now: Date = new Date()
 ): Promise<TransactionRecord> {
   return serializePortfolioMutation(async () => {
     const existing = getTransaction(id);
     if (!existing) throw new UserInputError('Transaction not found.');
+    assertTransactionIsCurrent(input.transactionDate, now);
 
     const assetId = createAssetId(input.asset.provider ?? 'coingecko', input.asset.providerCoinId);
     assertMutationDoesNotOversell(
@@ -209,7 +254,8 @@ export async function updateTransaction(
         transactionDate: input.transactionDate,
         createdAt: existing.createdAt
       },
-      id
+      id,
+      now
     );
 
     const asset = upsertAsset(input.asset);
@@ -228,13 +274,14 @@ export async function updateTransaction(
       rowHash: input.rowHash ?? null,
       transactionDate: input.transactionDate,
       notes: input.notes || null,
-      updatedAt: new Date().toISOString()
+      updatedAt: now.toISOString()
     };
     const updated = { ...mapTransaction(updatedRow), asset };
-    const prospective = listTransactionsWithAssets().map((transaction) =>
+    const prospective = listCurrentTransactionsWithAssets(now).map((transaction) =>
       transaction.id === id ? updated : transaction
     );
-    const plan = await preparePortfolioAccounting(prospective);
+    if (!prospective.some((transaction) => transaction.id === id)) prospective.push(updated);
+    const plan = await preparePortfolioAccounting(prospective, undefined, now);
 
     getSqlite().transaction(() => {
       db.update(transactions)
@@ -262,13 +309,15 @@ export async function updateTransaction(
   });
 }
 
-export async function deleteTransaction(id: string): Promise<void> {
+export async function deleteTransaction(id: string, now: Date = new Date()): Promise<void> {
   return serializePortfolioMutation(async () => {
     const existing = getTransaction(id);
     if (!existing) throw new UserInputError('Transaction not found.');
-    assertMutationDoesNotOversell(undefined, id);
-    const prospective = listTransactionsWithAssets().filter((transaction) => transaction.id !== id);
-    const plan = await preparePortfolioAccounting(prospective);
+    assertMutationDoesNotOversell(undefined, id, now);
+    const prospective = listCurrentTransactionsWithAssets(now).filter(
+      (transaction) => transaction.id !== id
+    );
+    const plan = await preparePortfolioAccounting(prospective, undefined, now);
 
     getSqlite().transaction(() => {
       db.delete(transactions).where(eq(transactions.id, id)).run();

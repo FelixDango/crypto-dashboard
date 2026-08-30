@@ -15,7 +15,7 @@ import {
   getSnapshotHealth
 } from '$lib/server/analytics/history-health';
 import { getAppSettings } from '$lib/server/settings';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
 import {
   assertNoNegativeHoldings,
   ensurePortfolioAccounting,
@@ -172,11 +172,11 @@ async function scorePrices(now: Date): Promise<ConfidenceCategory> {
   return category(score, issues);
 }
 
-function nearestPriceIssues(): string[] {
+function nearestPriceIssues(now: Date): string[] {
   const priceRows = db.select().from(priceSnapshots).all();
   const issues: string[] = [];
 
-  for (const transaction of db.select().from(transactions).all()) {
+  for (const transaction of listCurrentTransactionsWithAssets(now)) {
     const quantity = safeDecimal(transaction.quantity);
     const fiat = safeDecimal(transaction.fiatAmount);
     if (!quantity || !fiat || quantity.lte(0) || fiat.lte(0)) continue;
@@ -216,8 +216,10 @@ function nearestPriceIssues(): string[] {
   return issues;
 }
 
-function scoreTransactions(): ConfidenceCategory {
-  const rows = db.select().from(transactions).all();
+function scoreTransactions(now: Date): ConfidenceCategory {
+  const allRows = db.select().from(transactions).all();
+  const currentIds = new Set(listCurrentTransactionsWithAssets(now).map((row) => row.id));
+  const rows = allRows.filter((row) => currentIds.has(row.id));
   const issues: string[] = [];
   let score = 100;
 
@@ -259,7 +261,7 @@ function scoreTransactions(): ConfidenceCategory {
     score -= 45;
   }
 
-  const suspicious = nearestPriceIssues();
+  const suspicious = nearestPriceIssues(now);
   if (suspicious.length > 0) {
     issues.push(...suspicious);
     score -= Math.min(30, suspicious.length * 15);
@@ -268,9 +270,9 @@ function scoreTransactions(): ConfidenceCategory {
   return category(score, issues);
 }
 
-async function scoreAccounting(): Promise<ConfidenceCategory> {
+async function scoreAccounting(now: Date): Promise<ConfidenceCategory> {
   const settings = getAppSettings();
-  const rows = listTransactionsWithAssets();
+  const rows = listCurrentTransactionsWithAssets(now);
   const issues: string[] = [];
   let score = 100;
 
@@ -288,7 +290,7 @@ async function scoreAccounting(): Promise<ConfidenceCategory> {
         createdAt: row.createdAt
       }))
     );
-    await ensurePortfolioAccounting();
+    await ensurePortfolioAccounting(now);
   } catch (error) {
     issues.push(error instanceof Error ? error.message : 'Accounting rebuild failed.');
     return category(35, issues);
@@ -342,8 +344,8 @@ export async function getDataConfidence(options: { now?: Date } = {}): Promise<D
   const categories = {
     snapshots: scoreSnapshots(now),
     prices: await scorePrices(now),
-    transactions: scoreTransactions(),
-    accounting: await scoreAccounting()
+    transactions: scoreTransactions(now),
+    accounting: await scoreAccounting(now)
   } satisfies Record<ConfidenceCategoryName, ConfidenceCategory>;
   const score = clampScore(
     (Object.entries(categories) as Array<[ConfidenceCategoryName, ConfidenceCategory]>).reduce(

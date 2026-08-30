@@ -24,7 +24,7 @@ import {
   getLatestSuccessfulPriceUpdateEvent
 } from '$lib/server/prices/events';
 import { getAppSettings } from '$lib/server/settings';
-import { listTransactionsWithAssets } from '$lib/server/transactions';
+import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -221,7 +221,7 @@ export async function getPriceHealth(
   const now = options.now ?? new Date();
   const normalizedTransactions =
     options.normalizedTransactions ??
-    (await normalizeTransactions(listTransactionsWithAssets(), baseCurrency));
+    (await normalizeTransactions(listCurrentTransactionsWithAssets(now), baseCurrency));
   const preliminary = calculatePortfolio(normalizedTransactions, [], baseCurrency);
   const activeHoldings = preliminary.holdings.filter((holding) =>
     asDecimal(holding.quantity).gt(0)
