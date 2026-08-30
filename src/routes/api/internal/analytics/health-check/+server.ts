@@ -2,6 +2,7 @@ import { json, type RequestEvent } from '@sveltejs/kit';
 import { getAnalyticsHealthSummary } from '$lib/server/analytics/history-health';
 import { isInternalCronAuthorized } from '$lib/server/internalAuth';
 import { cleanupPriceUpdateEvents } from '$lib/server/prices/events';
+import { cleanupPortfolioSnapshots } from '$lib/server/portfolio/snapshots';
 
 export async function POST(event: RequestEvent) {
   if (!isInternalCronAuthorized(event.request)) {
@@ -9,7 +10,10 @@ export async function POST(event: RequestEvent) {
   }
 
   const health = await getAnalyticsHealthSummary();
-  const cleanup = cleanupPriceUpdateEvents();
+  const cleanup = {
+    priceUpdateEvents: cleanupPriceUpdateEvents(),
+    portfolioSnapshots: cleanupPortfolioSnapshots()
+  };
 
   return json({
     status: 'ok',

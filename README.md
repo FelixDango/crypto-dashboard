@@ -170,6 +170,46 @@ The app container exposes port `3000` only to the `npm_proxy` Docker network. It
 public host port by default. `docker compose up -d` starts both `krypto-dashboard` and
 `snapshot-cron`.
 
+## Automated SQLite Backups And Restore Drill
+
+The cron sidecar requests `POST /api/internal/backups/run` every day at 01:30. The app uses SQLite's
+online backup API (safe with WAL), opens the completed copy, requires `PRAGMA integrity_check` to
+return `ok`, and only then publishes a timestamped
+`krypto-dashboard-backup-YYYYMMDDTHHMMSSmmmZ.db` file. Backups use the separate
+`krypto-dashboard-backups` Docker volume mounted at `/backups`; they are never placed beside the
+live `/data/krypto.db` file.
+
+Configuration defaults:
+
+- `BACKUP_DIRECTORY=/backups` in Docker (`./backups` for local `.env`)
+- `BACKUP_RETENTION_COUNT=14`
+- `BACKUP_RETENTION_DAYS=30`
+
+Retention applies both limits. Pruning is restricted to this app's exact timestamped filename
+pattern inside the resolved backup directory; unrelated files are ignored. `/api/backup` uses the
+same verified mechanism and leaves its generated backup in the backup volume as well as returning
+the download. A failed integrity check never publishes the partial file.
+
+Copy backups off-host regularly (replace the example filename with one shown in `/backups`):
+
+```bash
+mkdir -p off-host-backups
+docker cp krypto-dashboard:/backups/krypto-dashboard-backup-20260830T013000000Z.db ./off-host-backups/
+sqlite3 ./off-host-backups/krypto-dashboard-backup-20260830T013000000Z.db 'PRAGMA integrity_check;'
+```
+
+Restore drill (perform on a disposable host first):
+
+1. Stop both writers with `docker compose stop snapshot-cron krypto-dashboard`.
+2. Verify the selected backup returns `ok` from `PRAGMA integrity_check`.
+3. Copy the current `/data/krypto.db` off-host as an additional rollback copy.
+4. Replace `/data/krypto.db` with the verified backup while the containers are stopped and remove
+   only the matching stale `krypto.db-wal` and `krypto.db-shm` files.
+5. Start the app with `docker compose up -d`, inspect `/health`, the dashboard, transaction count,
+   and logs, then run another `/api/backup` download.
+
+Never restore over a running SQLite writer. The reset feature does not create a backup automatically.
+
 ## Automatic Snapshots And Health
 
 Portfolio value charts use rows from the `portfolio_snapshots` SQLite table. The app creates real
@@ -185,6 +225,7 @@ The `snapshot-cron` sidecar runs Alpine `crond` and calls the app by internal Do
   `POST http://krypto-dashboard:3000/api/internal/signals/refresh`
 - News fetch: minute 20, `POST http://krypto-dashboard:3000/api/internal/news/fetch`
 - Daily snapshot: 23:55, `POST http://krypto-dashboard:3000/api/internal/snapshots/daily`
+- Verified SQLite backup: 01:30, `POST http://krypto-dashboard:3000/api/internal/backups/run`
 
 These calls require:
 
@@ -236,6 +277,12 @@ Duplicate prevention is enforced by a unique SQLite index over snapshot type, ba
 normalized UTC bucket timestamp. Repeated calls for the same hour or day return `already_exists`.
 Failed buckets are excluded from charts and analytics. A later successful run repairs the failed
 row in place, so a temporary provider or FX failure cannot permanently poison that time bucket.
+
+Hourly snapshots are retained for 90 days by default; set
+`HOURLY_SNAPSHOT_RETENTION_DAYS` to an integer of at least 7 to change it. Daily snapshots are kept
+indefinitely. The authenticated analytics health-check workflow performs cleanup and returns hourly
+deleted/retained and daily-retained counts. Cleanup never removes daily rows, retains the exact
+cutoff boundary, and preserves the latest usable hourly point even when all hourly history is old.
 
 ## V6 News Context Engine
 

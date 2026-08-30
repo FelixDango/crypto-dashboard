@@ -15,8 +15,13 @@ services:
       ALLOCATION_CONCENTRATION_WARNING_PERCENT: '70'
       PUBLIC_APP_NAME: Krypto Dashboard
       INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET:?Set INTERNAL_CRON_SECRET in .env}
+      BACKUP_DIRECTORY: /backups
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-14}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      HOURLY_SNAPSHOT_RETENTION_DAYS: ${HOURLY_SNAPSHOT_RETENTION_DAYS:-90}
     volumes:
       - krypto-data:/data
+      - krypto-backups:/backups
     networks:
       npm_proxy:
         aliases:
@@ -55,6 +60,7 @@ services:
           "2,12,22,32,42,52 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/signals/refresh >/proc/1/fd/1 2>/proc/1/fd/2" \
           "20 * * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/news/fetch >/proc/1/fd/1 2>/proc/1/fd/2" \
           "55 23 * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/snapshots/daily >/proc/1/fd/1 2>/proc/1/fd/2" \
+          "30 1 * * * curl -fsS -X POST -H 'Authorization: Bearer $${INTERNAL_CRON_SECRET}' http://krypto-dashboard:3000/api/internal/backups/run >/proc/1/fd/1 2>/proc/1/fd/2" \
           > /etc/crontabs/root
         crond -f -l 8
     networks:
@@ -67,3 +73,5 @@ networks:
 volumes:
   krypto-data:
     name: krypto-dashboard-data
+  krypto-backups:
+    name: krypto-dashboard-backups

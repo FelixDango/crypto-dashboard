@@ -25,3 +25,8 @@ export function getAllocationConcentrationWarningPercent(): number {
   const parsed = Number(process.env.ALLOCATION_CONCENTRATION_WARNING_PERCENT ?? '70');
   return Number.isFinite(parsed) && parsed > 0 && parsed <= 100 ? parsed : 70;
 }
+
+export function getHourlySnapshotRetentionDays(): number {
+  const parsed = Number(process.env.HOURLY_SNAPSHOT_RETENTION_DAYS ?? '90');
+  return Number.isInteger(parsed) && parsed >= 7 ? parsed : 90;
+}

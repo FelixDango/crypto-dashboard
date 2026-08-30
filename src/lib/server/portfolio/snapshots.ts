@@ -13,12 +13,13 @@ import type {
   SnapshotRange
 } from '$lib/types';
 import { calculatePortfolio } from '$lib/portfolio/calculations';
-import { db } from '$lib/server/db/client';
+import { db, getSqlite } from '$lib/server/db/client';
 import { assets, portfolioSnapshots, type PortfolioSnapshotRow } from '$lib/server/db/schema';
 import { normalizeTransactions } from '$lib/server/fx/cache';
 import { refreshCurrentPricesForAssets } from '$lib/server/prices/cache';
 import { getAppSettings } from '$lib/server/settings';
 import { listCurrentTransactionsWithAssets } from '$lib/server/transactions';
+import { getHourlySnapshotRetentionDays } from '$lib/env';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SEVEN_DAY_MIN_HOURLY_POINTS = 24;
@@ -314,5 +315,66 @@ export function listPortfolioSnapshotSeries(
     usedFallback: false,
     hasSnapshots,
     points: rows.map((row) => toPoint(row, range))
+  };
+}
+
+export type SnapshotCleanupResult = {
+  hourlyRetentionDays: number;
+  cutoffAt: string;
+  hourlyDeleted: number;
+  hourlyRetained: number;
+  dailyRetained: number;
+};
+
+export function cleanupPortfolioSnapshots(
+  options: { now?: Date; hourlyRetentionDays?: number } = {}
+): SnapshotCleanupResult {
+  const now = options.now ?? new Date();
+  const requestedDays = options.hourlyRetentionDays ?? getHourlySnapshotRetentionDays();
+  const hourlyRetentionDays =
+    Number.isInteger(requestedDays) && requestedDays >= 7 ? requestedDays : 90;
+  const cutoffAt = new Date(
+    now.getTime() - hourlyRetentionDays * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const sqlite = getSqlite();
+  const latestUsable = sqlite
+    .prepare(
+      `SELECT id FROM portfolio_snapshots
+       WHERE snapshot_type = 'hourly' AND price_status != 'failed'
+       ORDER BY bucket_at DESC, id DESC
+       LIMIT 1`
+    )
+    .get() as { id: string } | undefined;
+
+  const hourlyDeleted = latestUsable
+    ? sqlite
+        .prepare(
+          `DELETE FROM portfolio_snapshots
+           WHERE snapshot_type = 'hourly' AND bucket_at < ? AND id != ?`
+        )
+        .run(cutoffAt, latestUsable.id).changes
+    : sqlite
+        .prepare(
+          `DELETE FROM portfolio_snapshots
+           WHERE snapshot_type = 'hourly' AND bucket_at < ?`
+        )
+        .run(cutoffAt).changes;
+  const hourlyRetained = (
+    sqlite
+      .prepare("SELECT COUNT(*) AS count FROM portfolio_snapshots WHERE snapshot_type = 'hourly'")
+      .get() as { count: number }
+  ).count;
+  const dailyRetained = (
+    sqlite
+      .prepare("SELECT COUNT(*) AS count FROM portfolio_snapshots WHERE snapshot_type = 'daily'")
+      .get() as { count: number }
+  ).count;
+
+  return {
+    hourlyRetentionDays,
+    cutoffAt,
+    hourlyDeleted,
+    hourlyRetained,
+    dailyRetained
   };
 }

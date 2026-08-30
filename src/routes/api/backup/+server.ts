@@ -1,18 +1,14 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { getDatabasePath, getSqlite } from '$lib/server/db/client';
+import { createVerifiedBackup, readBackupFile } from '$lib/server/backup';
 
-export function GET() {
-  const sqlite = getSqlite();
-  sqlite.pragma('wal_checkpoint(TRUNCATE)');
-  const databasePath = getDatabasePath();
-  const filename = `krypto-backup-${new Date().toISOString().slice(0, 10)}.db`;
+export async function GET() {
+  const backup = await createVerifiedBackup();
+  const body = Uint8Array.from(readBackupFile(backup)).buffer;
 
-  return new Response(readFileSync(databasePath), {
+  return new Response(body, {
     headers: {
       'content-type': 'application/octet-stream',
-      'content-disposition': `attachment; filename="${filename}"`,
-      'x-database-file': path.basename(databasePath)
+      'content-disposition': `attachment; filename="${backup.filename}"`,
+      'x-backup-integrity': backup.integrity
     }
   });
 }
