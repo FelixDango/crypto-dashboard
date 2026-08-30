@@ -30,7 +30,10 @@ import {
   calculateMonthlyContributions,
   calculateMonthlyPnl,
   calculatePeriodChange,
-  calculateTimeWeightedReturn
+  calculateTimeWeightedReturnResult,
+  type SnapshotLedgerTransactionInput,
+  type TimeWeightedReturnPoint,
+  type TimeWeightedReturnResult
 } from '$lib/server/analytics/calculations';
 import { getPriceHealth } from '$lib/server/analytics/history-health';
 import { db } from '$lib/server/db/client';
@@ -51,6 +54,73 @@ function asDecimal(value: string | number | null | undefined): Decimal {
 function toText(value: Decimal): string {
   if (!value.isFinite()) return '0';
   return moneyText(value);
+}
+
+function ledgerEntriesFromHoldings(holdings: unknown): SnapshotLedgerTransactionInput[] | null {
+  if (!Array.isArray(holdings)) return null;
+
+  const entries: SnapshotLedgerTransactionInput[] = [];
+  for (const holding of holdings) {
+    if (!holding || typeof holding !== 'object' || !Array.isArray(Reflect.get(holding, 'ledger'))) {
+      return null;
+    }
+
+    for (const entry of Reflect.get(holding, 'ledger') as unknown[]) {
+      if (!entry || typeof entry !== 'object') return null;
+      const transactionId = Reflect.get(entry, 'transactionId');
+      const type = Reflect.get(entry, 'type');
+      const normalizedFiatAmount = Reflect.get(entry, 'normalizedFiatAmount');
+      const normalizedFeeAmount = Reflect.get(entry, 'normalizedFeeAmount');
+      if (
+        typeof transactionId !== 'string' ||
+        (type !== 'buy' && type !== 'sell') ||
+        typeof normalizedFiatAmount !== 'string' ||
+        typeof normalizedFeeAmount !== 'string'
+      ) {
+        return null;
+      }
+      entries.push({ transactionId, type, normalizedFiatAmount, normalizedFeeAmount });
+    }
+  }
+
+  return entries.length > 0 ? entries : null;
+}
+
+function snapshotLedger(row: PortfolioSnapshotRow): SnapshotLedgerTransactionInput[] | null {
+  try {
+    return ledgerEntriesFromHoldings(JSON.parse(row.holdingsJson));
+  } catch {
+    return null;
+  }
+}
+
+function orderedSummaryRows(baseCurrency: Currency, generatedAt: string): PortfolioSnapshotRow[] {
+  const cutoff = new Date(generatedAt).getTime();
+  const byCapturedAt = new Map<number, PortfolioSnapshotRow>();
+
+  for (const row of snapshotRows(baseCurrency)) {
+    const capturedAt = new Date(row.capturedAt).getTime();
+    if (!Number.isFinite(capturedAt) || capturedAt > cutoff) continue;
+    const existing = byCapturedAt.get(capturedAt);
+    if (!existing || (existing.snapshotType === 'daily' && row.snapshotType === 'hourly')) {
+      byCapturedAt.set(capturedAt, row);
+    }
+  }
+
+  return [...byCapturedAt.entries()].sort(([left], [right]) => left - right).map(([, row]) => row);
+}
+
+function timeWeightedReturnMessage(reason: TimeWeightedReturnResult['reason']): string | null {
+  if (reason === 'insufficient_history') {
+    return 'Time-weighted return needs at least one usable daily snapshot plus the current valuation.';
+  }
+  if (reason === 'invalid_ledger') {
+    return 'Time-weighted return is unavailable because a snapshot has no usable transaction ledger.';
+  }
+  if (reason === 'invalid_period') {
+    return 'Time-weighted return is unavailable because a snapshot period cannot be reconciled with its ledger changes.';
+  }
+  return null;
 }
 
 function twoDigit(value: number): string {
@@ -267,10 +337,10 @@ export async function getAnalyticsSummary(
   const completeTransactions = normalizedTransactions.filter(
     (transaction) => transaction.fxComplete
   );
-  const historicalRows = snapshotRows(baseCurrency);
+  const historicalRows = orderedSummaryRows(baseCurrency, generatedAt);
   const historicalPoints = historicalRows.map((row) => ({
     value: row.totalValue,
-    bucketAt: row.bucketAt
+    bucketAt: row.capturedAt
   }));
   const currentPoint = {
     value: overview.totals.currentValue,
@@ -292,14 +362,22 @@ export async function getAnalyticsSummary(
       return [range.value, calculatePeriodChange(series.points, range.value, range.label, message)];
     })
   ) as AnalyticsSummary['changes'];
-  const returnSnapshots = snapshotRows(baseCurrency, 'daily').map((row) => ({
-    bucketAt: row.bucketAt,
-    capturedAt: row.capturedAt,
-    value: row.totalValue
-  }));
-  const timeWeightedReturnPercent = overview.totals.financialDataComplete
-    ? calculateTimeWeightedReturn(returnSnapshots, completeTransactions)
+  const returnSnapshots: TimeWeightedReturnPoint[] = snapshotRows(baseCurrency, 'daily')
+    .filter((row) => row.capturedAt <= generatedAt)
+    .map((row) => ({
+      capturedAt: row.capturedAt,
+      value: row.totalValue,
+      ledger: snapshotLedger(row)
+    }));
+  returnSnapshots.push({
+    capturedAt: generatedAt,
+    value: overview.totals.currentValue,
+    ledger: ledgerEntriesFromHoldings(overview.holdings)
+  });
+  const timeWeightedReturn = overview.totals.financialDataComplete
+    ? calculateTimeWeightedReturnResult(returnSnapshots)
     : null;
+  const timeWeightedReturnPercent = timeWeightedReturn?.value ?? null;
   const moneyWeightedReturnPercent = overview.totals.financialDataComplete
     ? calculateMoneyWeightedReturn(completeTransactions, overview.totals.currentValue, generatedAt)
     : null;
@@ -312,7 +390,7 @@ export async function getAnalyticsSummary(
     allTimeHighAt: athPoint?.bucketAt ?? null,
     currentDrawdownPercent: currentDrawdown,
     maxDrawdownPercent: historicalPoints.length > 0 ? calculateMaxDrawdown(allPoints) : null,
-    totalInvested: overview.totals.totalBuyCost,
+    totalBuyCost: overview.totals.totalBuyCost,
     totalProfit: overview.totals.totalProfit,
     totalRoiPercent: overview.totals.roiPercent,
     timeWeightedReturnPercent,
@@ -330,6 +408,12 @@ export async function getAnalyticsSummary(
         ? [
             `${overview.totals.missingPriceCount} open position(s) are excluded because a market price is unavailable.`
           ]
+        : []),
+      ...(timeWeightedReturn &&
+      (timeWeightedReturn.reason !== 'insufficient_history' || returnSnapshots.length > 1)
+        ? [timeWeightedReturnMessage(timeWeightedReturn.reason)].filter(
+            (message): message is string => message !== null
+          )
         : []),
       ...(historicalRows.length === 0
         ? [

@@ -49,7 +49,9 @@
   $: asset = data.asset;
   $: currency = data.baseCurrency;
   $: newsAsset = data.newsContext.asset;
-  $: priced = asset.priceStatus !== 'missing';
+  $: priced = asset.priceStatus === 'fresh' || asset.priceStatus === 'stale';
+  $: valued = asset.priceStatus !== 'missing';
+  $: performanceAvailable = asset.roiPercent !== null;
 
   function signedPercent(value: number | null): string {
     if (value === null) return '-';
@@ -91,7 +93,7 @@
     </article>
     <article class="card metric-card">
       <span class="label">Current value</span>
-      {#if priced}
+      {#if valued}
         <PrivacyValue
           className="value"
           value={formatCurrency(asset.currentValue, currency)}
@@ -104,6 +106,8 @@
         {#if priced}
           <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
           per unit
+        {:else if asset.priceStatus === 'not_required'}
+          Position closed
         {:else}
           No cached market price
         {/if}
@@ -111,7 +115,7 @@
     </article>
     <article class="card metric-card">
       <span class="label">Unrealized P/L</span>
-      {#if priced}
+      {#if valued}
         <PrivacyValue
           className={`value ${signedClass(asset.unrealizedProfit)}`}
           value={formatCurrency(asset.unrealizedProfit, currency)}
@@ -120,7 +124,7 @@
       {:else}
         <span class="value muted">-</span>
       {/if}
-      <span class="meta">{priced ? 'Current value minus open cost' : 'Waiting for price'}</span>
+      <span class="meta">{valued ? 'Current value minus open cost' : 'Waiting for price'}</span>
     </article>
     <article class="card metric-card">
       <span class="label">Realized P/L</span>
@@ -137,7 +141,9 @@
     <section class="card">
       <div class="section-head">
         <h2>Current valuation</h2>
-        <span class={`status ${asset.priceStatus}`}>{asset.priceStatus}</span>
+        <span class={`status ${asset.priceStatus}`}>
+          {asset.priceStatus === 'not_required' ? 'not required' : asset.priceStatus}
+        </span>
       </div>
       <dl class="detail-list">
         <div>
@@ -150,7 +156,7 @@
         </div>
         <div>
           <dt>Total P/L</dt>
-          {#if priced}
+          {#if performanceAvailable}
             <dd class={signedClass(asset.totalProfit)}>
               <PrivacyValue value={formatCurrency(asset.totalProfit, currency)} kind="fiat" />
             </dd>
@@ -160,8 +166,8 @@
         </div>
         <div>
           <dt>Total ROI</dt>
-          <dd class={priced ? signedClass(asset.roiPercent) : 'muted'}>
-            {priced ? formatPercent(asset.roiPercent) : '-'}
+          <dd class={asset.roiPercent === null ? 'muted' : signedClass(asset.roiPercent)}>
+            {asset.roiPercent === null ? '–' : formatPercent(asset.roiPercent)}
           </dd>
         </div>
         <div>
@@ -170,7 +176,11 @@
         </div>
         <div>
           <dt>Price source</dt>
-          <dd>{asset.priceSource ?? 'No cached price'}</dd>
+          <dd>
+            {asset.priceStatus === 'not_required'
+              ? 'Not required'
+              : (asset.priceSource ?? 'No cached price')}
+          </dd>
         </div>
         <div>
           <dt>Price timestamp</dt>
@@ -189,6 +199,8 @@
           <dd>
             {#if priced}
               <PrivacyValue value={formatCurrency(asset.currentPrice, currency)} kind="fiat" />
+            {:else if asset.priceStatus === 'not_required'}
+              <span class="muted">Not required</span>
             {:else}
               <span class="muted">-</span>
             {/if}
@@ -197,7 +209,7 @@
         <div>
           <dt>Current value</dt>
           <dd>
-            {#if priced}
+            {#if valued}
               <PrivacyValue value={formatCurrency(asset.currentValue, currency)} kind="fiat" />
             {:else}
               <span class="muted">-</span>

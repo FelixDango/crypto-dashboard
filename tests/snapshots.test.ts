@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
+import { parse } from 'csv-parse/sync';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function resetDatabase() {
@@ -97,12 +98,29 @@ describe('portfolio snapshots', () => {
     });
 
     expect(result.snapshot.totalValue).toBe('400');
-    expect(result.snapshot.totalInvested).toBe('300');
+    expect(result.snapshot.openCostBasis).toBe('300');
     expect(result.snapshot.unrealizedProfit).toBe('100');
     expect(new Decimal(result.snapshot.roiPercent).toFixed(2)).toBe('33.33');
     expect(result.snapshot.priceStatus).toBe('fresh');
     expect(JSON.parse(result.snapshot.holdingsJson)).toHaveLength(1);
     expect(JSON.parse(result.snapshot.pricesJson)).toHaveLength(1);
+  });
+
+  it('exports the open cost basis with a backwards-compatible legacy alias', async () => {
+    await seedHolding();
+    const { createPortfolioSnapshot } = await import('../src/lib/server/portfolio/snapshots');
+    const { exportPortfolioSnapshotsToCsv } = await import('../src/lib/server/csv');
+
+    await createPortfolioSnapshot('hourly', {
+      now: new Date('2026-07-05T12:34:00.000Z')
+    });
+    const [row] = parse(exportPortfolioSnapshotsToCsv(), {
+      columns: true,
+      skip_empty_lines: true
+    }) as Array<Record<string, string>>;
+
+    expect(row.open_cost_basis).toBe('300');
+    expect(row.total_invested).toBe('300');
   });
 
   it('falls back to stale cached prices when the live provider fails', async () => {

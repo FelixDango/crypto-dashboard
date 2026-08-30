@@ -352,13 +352,13 @@
       </article>
     {/each}
     <article class="card metric-card">
-      <span class="label">Total invested</span>
+      <span class="label">Total buy cost</span>
       <PrivacyValue
         className="value"
-        value={formatCurrency(data.summary.totalInvested, currency)}
+        value={formatCurrency(data.summary.totalBuyCost, currency)}
         kind="fiat"
       />
-      <span class="meta">Buy cost plus fees</span>
+      <span class="meta">Cumulative buy cost plus fees</span>
     </article>
     <article class="card metric-card">
       <span class="label">Accounting P/L</span>
@@ -371,8 +371,12 @@
     </article>
     <article class="card metric-card">
       <span class="label">Total ROI</span>
-      <strong class="value {signedClass(data.summary.totalRoiPercent)}">
-        {formatPercent(data.summary.totalRoiPercent)}
+      <strong
+        class="value {data.summary.totalRoiPercent === null
+          ? 'muted'
+          : signedClass(data.summary.totalRoiPercent)}"
+      >
+        {data.summary.totalRoiPercent === null ? '–' : formatPercent(data.summary.totalRoiPercent)}
       </strong>
       <span class="meta">
         Profit divided by cumulative buy cost · {oneYearChange.available
@@ -647,8 +651,11 @@
                 <td class={signedClass(asset.totalProfit)} data-label="Total P/L">
                   <PrivacyValue value={formatCurrency(asset.totalProfit, currency)} kind="fiat" />
                 </td>
-                <td class={signedClass(asset.roiPercent)} data-label="ROI">
-                  {formatPercent(asset.roiPercent)}
+                <td
+                  class={asset.roiPercent === null ? 'muted' : signedClass(asset.roiPercent)}
+                  data-label="ROI"
+                >
+                  {asset.roiPercent === null ? '–' : formatPercent(asset.roiPercent)}
                 </td>
                 <td data-label="Allocation">{formatPercent(asset.allocationPercent)}</td>
                 <td

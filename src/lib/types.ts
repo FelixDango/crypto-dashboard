@@ -91,7 +91,7 @@ export type HoldingSummary = {
   costBasis: string;
   unrealizedProfit: string;
   totalProfit: string;
-  roiPercent: string;
+  roiPercent: string | null;
   realizedProfit: string;
   realizedProfitApprox: string;
   totalFees: string;
@@ -99,7 +99,7 @@ export type HoldingSummary = {
   stalePrice: boolean;
   priceSource: string | null;
   priceCapturedAt: string | null;
-  priceStatus: 'fresh' | 'stale' | 'missing';
+  priceStatus: 'fresh' | 'stale' | 'missing' | 'not_required';
   ledger: TransactionLedgerEntry[];
 };
 
@@ -109,11 +109,11 @@ export type PortfolioTotals = {
   financialDataComplete: boolean;
   excludedTransactionCount: number;
   currentValue: string;
-  investedAmount: string;
+  openCostBasis: string;
   totalBuyCost: string;
   unrealizedProfit: string;
   totalProfit: string;
-  roiPercent: string;
+  roiPercent: string | null;
   realizedProfit: string;
   realizedProfitApprox: string;
   totalFees: string;

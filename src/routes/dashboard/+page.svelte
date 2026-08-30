@@ -213,7 +213,7 @@
       <span class="label">Open cost basis</span>
       <PrivacyValue
         className="value"
-        value={formatCurrency(overview.totals.investedAmount, currency)}
+        value={formatCurrency(overview.totals.openCostBasis, currency)}
         kind="fiat"
       />
       <span class="meta">Pooled average-cost position</span>
@@ -255,10 +255,15 @@
     </article>
     <article class="card metric-card">
       <span class="label">Total ROI</span>
-      <strong class="value {signedClass(overview.totals.roiPercent)}">
-        {formatPercent(overview.totals.roiPercent)}
-      </strong>
-      <span class="meta">{overview.totals.fxWarningCount} FX warnings</span>
+      {#if overview.totals.roiPercent === null}
+        <strong class="value muted">–</strong>
+        <span class="meta">Unavailable until missing price or FX data recovers</span>
+      {:else}
+        <strong class="value {signedClass(overview.totals.roiPercent)}">
+          {formatPercent(overview.totals.roiPercent)}
+        </strong>
+        <span class="meta">{overview.totals.fxWarningCount} FX warnings</span>
+      {/if}
     </article>
   </div>
 
@@ -343,8 +348,14 @@
       <span class="muted">Best performer</span>
       {#if overview.bestPerformer}
         <strong>{overview.bestPerformer.assetSymbol}</strong>
-        <span class={signedClass(overview.bestPerformer.roiPercent)}>
-          {formatPercent(overview.bestPerformer.roiPercent)}
+        <span
+          class={overview.bestPerformer.roiPercent === null
+            ? 'muted'
+            : signedClass(overview.bestPerformer.roiPercent)}
+        >
+          {overview.bestPerformer.roiPercent === null
+            ? '–'
+            : formatPercent(overview.bestPerformer.roiPercent)}
         </span>
       {:else}
         <strong>-</strong>
@@ -356,8 +367,14 @@
       <span class="muted">Worst performer</span>
       {#if overview.worstPerformer}
         <strong>{overview.worstPerformer.assetSymbol}</strong>
-        <span class={signedClass(overview.worstPerformer.roiPercent)}>
-          {formatPercent(overview.worstPerformer.roiPercent)}
+        <span
+          class={overview.worstPerformer.roiPercent === null
+            ? 'muted'
+            : signedClass(overview.worstPerformer.roiPercent)}
+        >
+          {overview.worstPerformer.roiPercent === null
+            ? '–'
+            : formatPercent(overview.worstPerformer.roiPercent)}
         </span>
       {:else}
         <strong>-</strong>

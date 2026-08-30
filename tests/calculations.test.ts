@@ -50,7 +50,7 @@ describe('portfolio calculations', () => {
     expect(holdings[0].currentValue).toBe('400');
     expect(holdings[0].costBasis).toBe('310');
     expect(holdings[0].unrealizedProfit).toBe('90');
-    expect(new Decimal(holdings[0].roiPercent).toFixed(2)).toBe('29.03');
+    expect(new Decimal(holdings[0].roiPercent!).toFixed(2)).toBe('29.03');
   });
 
   it('tracks approximate realized profit for sells while reducing open quantity', () => {
@@ -164,7 +164,7 @@ describe('portfolio calculations', () => {
 
     expect(portfolio.holdings[0].totalBuyCost).toBe('90');
     expect(portfolio.holdings[0].averageCost).toBe('90');
-    expect(portfolio.totals.investedAmount).toBe('90');
+    expect(portfolio.totals.openCostBasis).toBe('90');
     expect(portfolio.holdings[0].ledger[0].fxRate).toBe('0.9');
   });
 
@@ -179,10 +179,10 @@ describe('portfolio calculations', () => {
     );
 
     expect(portfolio.totals.currentValue).toBe('400');
-    expect(portfolio.totals.investedAmount).toBe('300');
+    expect(portfolio.totals.openCostBasis).toBe('300');
     expect(portfolio.totals.unrealizedProfit).toBe('100');
     expect(portfolio.totals.realizedProfit).toBe('0');
-    expect(new Decimal(portfolio.totals.roiPercent).toFixed(2)).toBe('33.33');
+    expect(new Decimal(portfolio.totals.roiPercent!).toFixed(2)).toBe('33.33');
   });
 
   it('does not treat missing prices as a 100% loss', () => {
@@ -195,14 +195,113 @@ describe('portfolio calculations', () => {
     expect(portfolio.holdings[0].priceStatus).toBe('missing');
     expect(portfolio.holdings[0].currentValue).toBe('0');
     expect(portfolio.holdings[0].unrealizedProfit).toBe('0');
-    expect(portfolio.holdings[0].roiPercent).toBe('0');
+    expect(portfolio.holdings[0].roiPercent).toBeNull();
     expect(portfolio.totals.unrealizedProfit).toBe('0');
     expect(portfolio.totals.totalProfit).toBe('0');
-    expect(portfolio.totals.roiPercent).toBe('0');
+    expect(portfolio.totals.roiPercent).toBeNull();
     expect(portfolio.totals.stalePriceCount).toBe(0);
     expect(portfolio.totals.missingPriceCount).toBe(1);
     expect(portfolio.totals.financialDataComplete).toBe(false);
     expect(portfolio.allocation).toEqual([]);
     expect(portfolio.worstPerformer).toBeNull();
+  });
+
+  it('does not publish a partial ROI when one open asset has no price', () => {
+    const portfolio = calculatePortfolio(
+      [
+        transaction({ quantity: '1', fiatAmount: '100' }),
+        transaction({
+          id: crypto.randomUUID(),
+          assetId: 'coingecko:ethereum',
+          assetSymbol: 'ETH',
+          assetName: 'Ethereum',
+          quantity: '1',
+          fiatAmount: '100'
+        })
+      ],
+      [
+        {
+          assetId: 'coingecko:ethereum',
+          price: '200',
+          currency: 'EUR',
+          source: 'test',
+          capturedAt: '2026-01-01T12:00:00.000Z',
+          stale: false
+        }
+      ],
+      'EUR'
+    );
+
+    expect(portfolio.totals.totalProfit).toBe('100');
+    expect(portfolio.totals.totalBuyCost).toBe('200');
+    expect(portfolio.totals.roiPercent).toBeNull();
+    expect(portfolio.totals.financialDataComplete).toBe(false);
+  });
+
+  it('does not publish asset or portfolio ROI when an FX transaction is excluded', () => {
+    const incompleteBuy = {
+      ...transaction({
+        id: crypto.randomUUID(),
+        fiatAmount: '100',
+        fiatCurrency: 'USD',
+        transactionDate: '2025-01-02T12:00:00.000Z'
+      }),
+      normalizedFiatAmount: '0',
+      normalizedFeeAmount: '0',
+      fxRate: '',
+      fxSource: 'test',
+      fxDate: '2025-01-02',
+      fxCapturedAt: null,
+      fxStatus: 'missing',
+      fxComplete: false,
+      fxWarning: 'USD/EUR is unavailable.'
+    } satisfies NormalizedTransactionRecord;
+
+    const portfolio = calculatePortfolio(
+      [transaction({ fiatAmount: '100' }), incompleteBuy],
+      [btcQuote],
+      'EUR'
+    );
+
+    expect(portfolio.holdings[0].roiPercent).toBeNull();
+    expect(portfolio.totals.roiPercent).toBeNull();
+    expect(portfolio.totals.excludedTransactionCount).toBe(1);
+  });
+
+  it('marks a closed position as not requiring a price and restores pricing after a rebuy', () => {
+    const closedTransactions = [
+      transaction({ quantity: '1', fiatAmount: '100' }),
+      transaction({
+        id: crypto.randomUUID(),
+        type: 'sell',
+        quantity: '1',
+        fiatAmount: '150',
+        transactionDate: '2025-02-01T12:00:00.000Z'
+      })
+    ];
+    const closed = calculateHoldings(closedTransactions, [])[0];
+
+    expect(closed.priceStatus).toBe('not_required');
+    expect(closed.currentPrice).toBe('0');
+    expect(closed.totalProfit).toBe('50');
+    expect(closed.roiPercent).toBe('50');
+
+    const reopened = calculateHoldings(
+      [
+        ...closedTransactions,
+        transaction({
+          id: crypto.randomUUID(),
+          quantity: '1',
+          fiatAmount: '200',
+          transactionDate: '2025-03-01T12:00:00.000Z'
+        })
+      ],
+      [{ ...btcQuote, price: '250' }]
+    )[0];
+
+    expect(reopened.priceStatus).toBe('fresh');
+    expect(reopened.currentValue).toBe('250');
+    expect(reopened.roiPercent).not.toBeNull();
+    expect(new Decimal(reopened.roiPercent!).toFixed(2)).toBe('33.33');
   });
 });

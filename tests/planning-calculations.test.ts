@@ -81,7 +81,7 @@ function overview(
       financialDataComplete: missingPriceCount === 0 && excludedTransactionCount === 0,
       excludedTransactionCount,
       currentValue,
-      investedAmount: '0',
+      openCostBasis: '0',
       totalBuyCost: '0',
       unrealizedProfit: '0',
       totalProfit: '0',

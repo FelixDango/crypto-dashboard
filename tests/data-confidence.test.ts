@@ -48,7 +48,7 @@ async function insertSnapshot(
       baseCurrency: 'EUR',
       bucketAt,
       totalValue: '100',
-      totalInvested: '80',
+      openCostBasis: '80',
       unrealizedProfit: '20',
       roiPercent: '25',
       holdingsJson: '[]',

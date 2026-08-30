@@ -107,7 +107,7 @@ export const portfolioSnapshots = sqliteTable(
     baseCurrency: text('base_currency').$type<Currency>().notNull(),
     bucketAt: text('bucket_at').notNull(),
     totalValue: text('total_value').notNull(),
-    totalInvested: text('total_invested').notNull(),
+    openCostBasis: text('total_invested').notNull(),
     unrealizedProfit: text('unrealized_profit').notNull(),
     roiPercent: text('roi_percent').notNull(),
     holdingsJson: text('holdings_json').notNull(),

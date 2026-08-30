@@ -631,10 +631,16 @@ remains the source of truth.
 
 Analytics also reports two return measures when the required data is complete:
 
-- Time-weighted return chains snapshot subperiod returns after adjusting each subperiod for manual
-  cash flows. It is snapshot-based, so accuracy improves with uninterrupted daily snapshots.
+- Time-weighted return chains snapshot subperiod returns after adjusting each subperiod for the
+  transaction-ledger changes actually present between both snapshot payloads. This keeps late,
+  backdated, edited, and deleted manual entries aligned with the recorded value history. The current
+  complete valuation closes the final period; accuracy improves with uninterrupted daily snapshots.
 - Money-weighted return is annualized XIRR using dated buy costs, net sell proceeds, and current
   portfolio value.
+
+Portfolio-history CSV exports name the remaining pooled basis `open_cost_basis`. The legacy
+`total_invested` column remains as an equal-valued compatibility alias; new integrations should use
+`open_cost_basis`.
 
 If a required EUR/USD conversion cannot be fetched or read from cache, the transaction is marked
 incomplete and excluded from financial totals instead of being treated as a false 1:1 conversion.

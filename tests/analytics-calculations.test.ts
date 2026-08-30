@@ -9,8 +9,19 @@ import {
   calculateMonthlyPnl,
   calculatePeriodChange,
   calculateRunningAth,
-  calculateTimeWeightedReturn
+  calculateTimeWeightedReturn,
+  calculateTimeWeightedReturnResult,
+  type SnapshotLedgerTransactionInput
 } from '$lib/server/analytics/calculations';
+
+function ledgerEntry(
+  transactionId: string,
+  type: 'buy' | 'sell',
+  normalizedFiatAmount: string,
+  normalizedFeeAmount = '0'
+): SnapshotLedgerTransactionInput {
+  return { transactionId, type, normalizedFiatAmount, normalizedFeeAmount };
+}
 
 describe('analytics calculations', () => {
   it('calculates running ATH values', () => {
@@ -146,21 +157,80 @@ describe('analytics calculations', () => {
   });
 
   it('calculates cash-flow-adjusted time-weighted return', () => {
-    const result = calculateTimeWeightedReturn(
-      [
-        { bucketAt: '2026-01-01T00:00:00.000Z', value: '100' },
-        { bucketAt: '2026-02-01T00:00:00.000Z', value: '165' }
-      ],
-      [
-        {
-          type: 'buy',
-          fiatAmount: '50',
-          transactionDate: '2026-01-15T12:00:00.000Z'
-        }
-      ]
-    );
+    const result = calculateTimeWeightedReturn([
+      {
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        value: '100',
+        ledger: [ledgerEntry('initial-buy', 'buy', '100')]
+      },
+      {
+        capturedAt: '2026-02-01T00:00:00.000Z',
+        value: '165',
+        ledger: [ledgerEntry('initial-buy', 'buy', '100'), ledgerEntry('later-buy', 'buy', '50')]
+      }
+    ]);
 
     expect(result).toBe('15');
+  });
+
+  it('reconciles added, edited, and deleted ledger cash flows between snapshots', () => {
+    const initial = ledgerEntry('initial-buy', 'buy', '100');
+
+    expect(
+      calculateTimeWeightedReturn([
+        { capturedAt: '2026-01-01T00:00:00.000Z', value: '100', ledger: [initial] },
+        {
+          capturedAt: '2026-02-01T00:00:00.000Z',
+          value: '165',
+          ledger: [initial, ledgerEntry('backdated-buy', 'buy', '50')]
+        }
+      ])
+    ).toBe('15');
+
+    expect(
+      calculateTimeWeightedReturn([
+        { capturedAt: '2026-01-01T00:00:00.000Z', value: '100', ledger: [initial] },
+        {
+          capturedAt: '2026-02-01T00:00:00.000Z',
+          value: '165',
+          ledger: [ledgerEntry('initial-buy', 'buy', '150')]
+        }
+      ])
+    ).toBe('15');
+
+    expect(
+      calculateTimeWeightedReturn([
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          value: '150',
+          ledger: [initial, ledgerEntry('removed-buy', 'buy', '50')]
+        },
+        { capturedAt: '2026-02-01T00:00:00.000Z', value: '100', ledger: [initial] }
+      ])
+    ).toBe('0');
+  });
+
+  it('returns minus one hundred percent for a complete loss', () => {
+    const ledger = [ledgerEntry('initial-buy', 'buy', '100')];
+    expect(
+      calculateTimeWeightedReturn([
+        { capturedAt: '2026-01-01T00:00:00.000Z', value: '100', ledger },
+        { capturedAt: '2026-02-01T00:00:00.000Z', value: '0', ledger }
+      ])
+    ).toBe('-100');
+  });
+
+  it('rejects snapshots without a usable ledger', () => {
+    const result = calculateTimeWeightedReturnResult([
+      {
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        value: '100',
+        ledger: [ledgerEntry('initial-buy', 'buy', '100')]
+      },
+      { capturedAt: '2026-02-01T00:00:00.000Z', value: '110', ledger: null }
+    ]);
+
+    expect(result).toEqual({ value: null, reason: 'invalid_ledger' });
   });
 
   it('calculates annualized money-weighted return from dated cash flows', () => {

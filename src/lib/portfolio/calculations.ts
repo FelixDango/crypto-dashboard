@@ -18,7 +18,7 @@ function zeroTotals(baseCurrency: Currency): PortfolioTotals {
     financialDataComplete: true,
     excludedTransactionCount: 0,
     currentValue: '0',
-    investedAmount: '0',
+    openCostBasis: '0',
     totalBuyCost: '0',
     unrealizedProfit: '0',
     totalProfit: '0',
@@ -50,15 +50,18 @@ export function calculateHoldings(
     const totalBuyCost = decimal(position.totalBuyCost);
     const quote = quoteByAsset.get(position.assetId);
     const hasOpenPosition = quantity.gt(0);
-    const hasPrice = !hasOpenPosition || Boolean(quote && quote.capturedAt !== null);
+    const hasPrice = Boolean(quote && quote.capturedAt !== null);
     const currentPrice = hasOpenPosition && hasPrice ? decimal(quote?.price) : new Decimal(0);
     const currentValue = hasOpenPosition && hasPrice ? quantity.mul(currentPrice) : new Decimal(0);
     const unrealizedProfit =
       hasOpenPosition && hasPrice ? currentValue.minus(costBasis) : new Decimal(0);
     const totalProfit = unrealizedProfit.plus(realizedProfit);
-    const roiPercent = totalBuyCost.gt(0) ? totalProfit.div(totalBuyCost).mul(100) : new Decimal(0);
+    const roiPercent =
+      hasOpenPosition && !hasPrice
+        ? null
+        : percentText(totalBuyCost.gt(0) ? totalProfit.div(totalBuyCost).mul(100) : new Decimal(0));
     const priceStatus: HoldingSummary['priceStatus'] = !hasOpenPosition
-      ? 'fresh'
+      ? 'not_required'
       : !hasPrice
         ? 'missing'
         : quote?.stale
@@ -78,7 +81,7 @@ export function calculateHoldings(
       costBasis: position.costBasis,
       unrealizedProfit: moneyText(unrealizedProfit),
       totalProfit: moneyText(totalProfit),
-      roiPercent: percentText(roiPercent),
+      roiPercent,
       realizedProfit: position.realizedProfit,
       realizedProfitApprox: position.realizedProfit,
       totalFees: position.totalFees,
@@ -120,13 +123,18 @@ export function calculatePortfolio(
   const completeTransactions = transactions.filter(
     (transaction) => !('fxComplete' in transaction) || transaction.fxComplete
   );
-  const holdings = calculateHoldings(completeTransactions, quotes);
+  const incompleteAssetIds = new Set(
+    incompleteTransactions.map((transaction) => transaction.assetId)
+  );
+  const holdings = calculateHoldings(completeTransactions, quotes).map((holding) =>
+    incompleteAssetIds.has(holding.assetId) ? { ...holding, roiPercent: null } : holding
+  );
   const totals = holdings.reduce((accumulator, holding) => {
     accumulator.currentValue = moneyText(
       new Decimal(accumulator.currentValue).plus(holding.currentValue)
     );
-    accumulator.investedAmount = moneyText(
-      new Decimal(accumulator.investedAmount).plus(holding.costBasis)
+    accumulator.openCostBasis = moneyText(
+      new Decimal(accumulator.openCostBasis).plus(holding.costBasis)
     );
     accumulator.totalBuyCost = moneyText(
       new Decimal(accumulator.totalBuyCost).plus(holding.totalBuyCost)
@@ -155,15 +163,19 @@ export function calculatePortfolio(
   totals.excludedTransactionCount = incompleteTransactions.length;
 
   const totalBuyCost = new Decimal(totals.totalBuyCost);
-  totals.roiPercent = totalBuyCost.gt(0)
-    ? percentText(new Decimal(totals.totalProfit).div(totalBuyCost).mul(100))
-    : '0';
+  totals.roiPercent = totals.financialDataComplete
+    ? totalBuyCost.gt(0)
+      ? percentText(new Decimal(totals.totalProfit).div(totalBuyCost).mul(100))
+      : '0'
+    : null;
 
   const openHoldings = holdings.filter((holding) => new Decimal(holding.quantity).gt(0));
   const pricedOpenHoldings = openHoldings.filter((holding) => holding.priceStatus !== 'missing');
-  const sortedByRoi = [...pricedOpenHoldings].sort((a, b) =>
-    new Decimal(b.roiPercent).cmp(a.roiPercent)
-  );
+  const sortedByRoi = pricedOpenHoldings
+    .filter(
+      (holding): holding is HoldingSummary & { roiPercent: string } => holding.roiPercent !== null
+    )
+    .sort((a, b) => new Decimal(b.roiPercent).cmp(a.roiPercent));
 
   return {
     totals,

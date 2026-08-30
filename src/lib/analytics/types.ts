@@ -64,9 +64,9 @@ export type AnalyticsSummary = {
   allTimeHighAt: string | null;
   currentDrawdownPercent: string | null;
   maxDrawdownPercent: string | null;
-  totalInvested: string;
+  totalBuyCost: string;
   totalProfit: string;
-  totalRoiPercent: string;
+  totalRoiPercent: string | null;
   timeWeightedReturnPercent: string | null;
   moneyWeightedReturnPercent: string | null;
   financialDataComplete: boolean;
@@ -128,7 +128,7 @@ export type AllocationAsset = {
   unrealizedProfit: string;
   realizedProfit: string | null;
   totalProfit: string;
-  roiPercent: string;
+  roiPercent: string | null;
   allocationPercent: string;
   baselineAllocationPercent: string | null;
   allocationDriftPercent: string | null;

@@ -14,7 +14,11 @@
     return `/assets/${encodeURIComponent(assetId)}`;
   }
 
-  function isPriced(holding: PortfolioOverview['holdings'][number]) {
+  function hasMarketPrice(holding: PortfolioOverview['holdings'][number]) {
+    return holding.priceStatus === 'fresh' || holding.priceStatus === 'stale';
+  }
+
+  function hasValuation(holding: PortfolioOverview['holdings'][number]) {
     return holding.priceStatus !== 'missing';
   }
 </script>
@@ -74,20 +78,26 @@
                   <PrivacyValue value={formatCurrency(holding.averageCost, currency)} kind="fiat" />
                 </td>
                 <td data-label="Current price">
-                  {#if isPriced(holding)}
+                  {#if hasMarketPrice(holding)}
                     <PrivacyValue
                       value={formatCurrency(holding.currentPrice, currency)}
                       kind="fiat"
                     />
+                  {:else if holding.priceStatus === 'not_required'}
+                    <span class="muted">Not required</span>
                   {:else}
                     <span class="muted">Missing</span>
                   {/if}
                   {#if holding.priceStatus !== 'fresh'}
-                    <span class="price-status {holding.priceStatus}">{holding.priceStatus}</span>
+                    <span class="price-status {holding.priceStatus}">
+                      {holding.priceStatus === 'not_required'
+                        ? 'not required'
+                        : holding.priceStatus}
+                    </span>
                   {/if}
                 </td>
                 <td data-label="Value">
-                  {#if isPriced(holding)}
+                  {#if hasValuation(holding)}
                     <PrivacyValue
                       value={formatCurrency(holding.currentValue, currency)}
                       kind="fiat"
@@ -97,7 +107,7 @@
                   {/if}
                 </td>
                 <td data-label="Unrealized P/L" class={signedClass(holding.unrealizedProfit)}>
-                  {#if isPriced(holding)}
+                  {#if hasValuation(holding)}
                     <PrivacyValue
                       value={formatCurrency(holding.unrealizedProfit, currency)}
                       kind="fiat"
@@ -114,15 +124,15 @@
                 </td>
                 <td
                   data-label="ROI"
-                  class={isPriced(holding) ? signedClass(holding.roiPercent) : ''}
+                  class={holding.roiPercent === null ? '' : signedClass(holding.roiPercent)}
                 >
-                  {isPriced(holding) ? formatPercent(holding.roiPercent) : '-'}
+                  {holding.roiPercent === null ? '–' : formatPercent(holding.roiPercent)}
                 </td>
                 <td data-label="Fees">
                   <PrivacyValue value={formatCurrency(holding.totalFees, currency)} kind="fiat" />
                 </td>
                 <td data-label="Allocation"
-                  >{isPriced(holding) ? formatPercent(holding.allocationPercent) : '-'}</td
+                  >{hasMarketPrice(holding) ? formatPercent(holding.allocationPercent) : '-'}</td
                 >
               </tr>
             {/each}
@@ -172,5 +182,10 @@
   .price-status.missing {
     border-color: rgba(251, 113, 133, 0.36);
     color: var(--negative);
+  }
+
+  .price-status.not_required {
+    border-color: var(--border);
+    color: var(--muted);
   }
 </style>

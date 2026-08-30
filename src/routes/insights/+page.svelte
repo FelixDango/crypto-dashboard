@@ -464,8 +464,14 @@
     <div class="safe-grid">
       <article>
         <span>Total ROI</span>
-        <strong class={signedClass(data.summary.totalRoiPercent)}>
-          {formatPercent(data.summary.totalRoiPercent)}
+        <strong
+          class={data.summary.totalRoiPercent === null
+            ? 'muted'
+            : signedClass(data.summary.totalRoiPercent)}
+        >
+          {data.summary.totalRoiPercent === null
+            ? '–'
+            : formatPercent(data.summary.totalRoiPercent)}
         </strong>
       </article>
       <article>

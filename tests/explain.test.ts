@@ -24,7 +24,7 @@ async function insertSnapshot(bucketAt: string, value: string) {
       baseCurrency: 'EUR',
       bucketAt,
       totalValue: value,
-      totalInvested: '100',
+      openCostBasis: '100',
       unrealizedProfit: '0',
       roiPercent: '0',
       holdingsJson: '[]',

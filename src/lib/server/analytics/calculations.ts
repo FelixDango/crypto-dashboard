@@ -32,6 +32,24 @@ type MonthlySnapshotInput = {
   value: string;
 };
 
+export type SnapshotLedgerTransactionInput = {
+  transactionId: string;
+  type: TransactionType;
+  normalizedFiatAmount: string;
+  normalizedFeeAmount: string;
+};
+
+export type TimeWeightedReturnPoint = {
+  capturedAt: string;
+  value: string;
+  ledger: SnapshotLedgerTransactionInput[] | null;
+};
+
+export type TimeWeightedReturnResult = {
+  value: string | null;
+  reason: 'complete' | 'insufficient_history' | 'invalid_ledger' | 'invalid_period';
+};
+
 export type AllocationInput = {
   assetId: string;
   assetSymbol: string;
@@ -42,7 +60,7 @@ export type AllocationInput = {
   unrealizedProfit: string;
   realizedProfit: string | null;
   totalProfit: string;
-  roiPercent: string;
+  roiPercent: string | null;
   currentPrice: string;
   priceStatus: AllocationAsset['priceStatus'];
 };
@@ -287,34 +305,84 @@ export function calculateMonthlyPnl(
     });
 }
 
-export function calculateTimeWeightedReturn(
-  snapshots: MonthlySnapshotInput[],
-  transactions: MonthlyTransactionInput[]
-): string | null {
-  const ordered = [...snapshots].sort((left, right) => snapshotTime(left) - snapshotTime(right));
-  if (ordered.length < 2) return null;
+function snapshotLedgerCashFlows(
+  transactions: SnapshotLedgerTransactionInput[] | null
+): Map<string, Decimal> | null {
+  if (!transactions || transactions.length === 0) return null;
+
+  const cashFlows = new Map<string, Decimal>();
+  for (const transaction of transactions) {
+    if (
+      !transaction.transactionId ||
+      cashFlows.has(transaction.transactionId) ||
+      (transaction.type !== 'buy' && transaction.type !== 'sell')
+    ) {
+      return null;
+    }
+
+    try {
+      const fiat = new Decimal(transaction.normalizedFiatAmount);
+      const fee = new Decimal(transaction.normalizedFeeAmount);
+      if (!fiat.isFinite() || !fee.isFinite()) return null;
+      cashFlows.set(
+        transaction.transactionId,
+        transaction.type === 'buy' ? fiat.plus(fee) : fiat.minus(fee).negated()
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  return cashFlows;
+}
+
+function ledgerDelta(start: Map<string, Decimal>, end: Map<string, Decimal>): Decimal {
+  const transactionIds = new Set([...start.keys(), ...end.keys()]);
+  return [...transactionIds].reduce(
+    (sum, transactionId) =>
+      sum.plus(end.get(transactionId) ?? 0).minus(start.get(transactionId) ?? 0),
+    new Decimal(0)
+  );
+}
+
+export function calculateTimeWeightedReturnResult(
+  snapshots: TimeWeightedReturnPoint[]
+): TimeWeightedReturnResult {
+  const byCapturedAt = new Map<number, TimeWeightedReturnPoint>();
+  for (const snapshot of snapshots) {
+    const capturedAt = new Date(snapshot.capturedAt).getTime();
+    if (!Number.isFinite(capturedAt)) {
+      return { value: null, reason: 'invalid_period' };
+    }
+    byCapturedAt.set(capturedAt, snapshot);
+  }
+  const ordered = [...byCapturedAt.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, snapshot]) => snapshot);
+  if (ordered.length < 2) return { value: null, reason: 'insufficient_history' };
 
   let growth = new Decimal(1);
   for (let index = 1; index < ordered.length; index += 1) {
     const start = ordered[index - 1];
     const end = ordered[index];
     const startValue = asDecimal(start.value);
-    if (startValue.lte(0)) return null;
+    if (startValue.lte(0)) return { value: null, reason: 'invalid_period' };
 
-    const startAt = snapshotTime(start);
-    const endAt = snapshotTime(end);
-    const netFlow = transactions.reduce((sum, transaction) => {
-      const transactionAt = new Date(transaction.transactionDate).getTime();
-      return transactionAt > startAt && transactionAt <= endAt
-        ? sum.plus(transactionNetContribution(transaction))
-        : sum;
-    }, new Decimal(0));
-    const periodGrowth = asDecimal(end.value).minus(netFlow).div(startValue);
-    if (periodGrowth.lte(0)) return null;
+    const startLedger = snapshotLedgerCashFlows(start.ledger);
+    const endLedger = snapshotLedgerCashFlows(end.ledger);
+    if (!startLedger || !endLedger) return { value: null, reason: 'invalid_ledger' };
+
+    const adjustedEndValue = asDecimal(end.value).minus(ledgerDelta(startLedger, endLedger));
+    if (adjustedEndValue.lt(0)) return { value: null, reason: 'invalid_period' };
+    const periodGrowth = adjustedEndValue.div(startValue);
     growth = growth.mul(periodGrowth);
   }
 
-  return toText(growth.minus(1).mul(100));
+  return { value: toText(growth.minus(1).mul(100)), reason: 'complete' };
+}
+
+export function calculateTimeWeightedReturn(snapshots: TimeWeightedReturnPoint[]): string | null {
+  return calculateTimeWeightedReturnResult(snapshots).value;
 }
 
 type DatedCashFlow = { at: string; amount: Decimal };
