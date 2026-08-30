@@ -27,6 +27,10 @@ export function logRequest(context: LogContext): void {
   write(status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info', 'http_request', context);
 }
 
+export function logInfo(event: string, context: LogContext = {}): void {
+  write('info', event, context);
+}
+
 export function logError(event: string, error: unknown, context: LogContext = {}): void {
   write('error', event, {
     ...context,

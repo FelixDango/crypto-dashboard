@@ -40,6 +40,24 @@ remain visible and editable in the transaction ledger, but are excluded from cur
 totals, snapshots, analytics, held-asset context, and accounting rebuilds until their date arrives.
 The dashboard shows the number of rows currently excluded for this reason.
 
+## Irreversible Data Reset
+
+Settings contains a **Danger zone** with two POST-only reset scopes. Portfolio and planning removes
+manual transactions/CSV batches, average-cost records, portfolio snapshots, current price and FX
+caches, price-update events, plans/targets, and assets that become orphaned. Full historical data
+adds fetched news content and events, news/asset matches, market daily history, sentiment history,
+and market-signal refresh history.
+
+Both scopes preserve the SQLite schema and migration journal, app settings, market-signal and cycle
+configuration, configured news-source definitions, environment variables/secrets, application code,
+and existing backup files. The page shows exact category counts before deletion. Reset requires a
+scope, a permanent-deletion checkbox, and the exact phrase `DELETE ALL TEST DATA`; all deletes run in
+one SQLite transaction and roll back together on failure.
+
+Download `/api/backup` before resetting. **The app does not create a backup automatically.** Reset
+tests exclusively create temporary databases and never target the configured development or
+production database.
+
 ## Portfolio Planning
 
 Open `/plan` to maintain one active, private portfolio plan. A plan contains a name, a positive

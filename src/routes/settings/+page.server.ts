@@ -1,4 +1,5 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
+import { ZodError } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 import { getDatabasePath, getSqlite } from '$lib/server/db/client';
 import { getAppSettings, updateAppSettings } from '$lib/server/settings';
@@ -17,6 +18,13 @@ import {
 } from '$lib/server/planning/service';
 import { getMarketSignalSettings, updateMarketSignalSettings } from '$lib/server/signals/settings';
 import { parseMarketSignalSettingsForm } from '$lib/validation/market-signals';
+import {
+  getResetPreview,
+  RESET_CATEGORY_LABELS,
+  resetCategories,
+  resetHistoricalData
+} from '$lib/server/reset';
+import { parseResetForm } from '$lib/validation/reset';
 
 export const load: PageServerLoad = () => {
   return {
@@ -25,7 +33,16 @@ export const load: PageServerLoad = () => {
     providers: listPriceProviders(),
     databasePath: getDatabasePath(),
     version: process.env.npm_package_version ?? '0.1.0',
-    nodeEnv: process.env.NODE_ENV ?? 'development'
+    nodeEnv: process.env.NODE_ENV ?? 'development',
+    resetPreviews: {
+      portfolio: getResetPreview('portfolio'),
+      full: getResetPreview('full')
+    },
+    resetCategoryLabels: RESET_CATEGORY_LABELS,
+    resetCategories: {
+      portfolio: resetCategories('portfolio'),
+      full: resetCategories('full')
+    }
   };
 };
 
@@ -82,5 +99,33 @@ export const actions: Actions = {
         intent: 'signals' as const
       });
     }
+  },
+
+  resetData: async ({ request, cookies }) => {
+    try {
+      const resetRequest = parseResetForm(await request.formData());
+      const result = await serializePortfolioMutation(async () =>
+        resetHistoricalData(resetRequest)
+      );
+      cookies.set(
+        'reset_result',
+        Buffer.from(JSON.stringify(result), 'utf8').toString('base64url'),
+        {
+          httpOnly: true,
+          sameSite: 'strict',
+          path: '/',
+          maxAge: 60
+        }
+      );
+    } catch (error) {
+      return fail(400, {
+        error:
+          error instanceof ZodError
+            ? [...new Set(error.issues.map((issue) => issue.message))].join(' ')
+            : getErrorMessage(error, 'Historical data could not be reset.'),
+        intent: 'reset' as const
+      });
+    }
+    throw redirect(303, '/dashboard?reset=complete');
   }
 };

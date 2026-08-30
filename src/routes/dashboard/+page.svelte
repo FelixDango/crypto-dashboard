@@ -17,6 +17,11 @@
     cycleWindows: CycleWindow[];
     snapshotRange: SnapshotRange;
     snapshotRanges: { value: SnapshotRange; label: string }[];
+    resetResult: null | {
+      scope: 'portfolio' | 'full';
+      totalRows: number;
+      deletedCategories: Array<{ label: string; count: number }>;
+    };
   };
   export let form: {
     snapshotError?: string;
@@ -146,6 +151,17 @@
       </a>
     </div>
   </div>
+
+  {#if data.resetResult}
+    <div class="notice success-notice reset-result" data-testid="reset-success">
+      <strong>Reset complete: {data.resetResult.totalRows} rows deleted.</strong>
+      <span>
+        {data.resetResult.deletedCategories
+          .map((category) => `${category.label}: ${category.count}`)
+          .join(' · ')}
+      </span>
+    </div>
+  {/if}
 
   {#if alertMessages.length > 0}
     <div class="notice warning-list">
@@ -414,6 +430,17 @@
     display: flex;
     gap: 0.6rem;
     margin-bottom: 1rem;
+  }
+
+  .reset-result {
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+  }
+
+  .reset-result span {
+    color: var(--muted);
+    font-size: 0.82rem;
   }
 
   .warning-list div {
