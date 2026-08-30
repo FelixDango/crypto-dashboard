@@ -26,6 +26,7 @@ function actionError(error: unknown) {
 }
 
 async function warmPriceCache(assetIds?: string[]) {
+  if (process.env.NODE_ENV === 'test' && process.env.E2E_TEST_MODE === '1') return;
   const selectedIds = assetIds ? new Set(assetIds) : null;
   const assets = listAssets().filter((asset) => !selectedIds || selectedIds.has(asset.id));
   if (assets.length === 0) return;

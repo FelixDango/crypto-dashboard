@@ -118,6 +118,21 @@ export async function searchAssets(query: string): Promise<AssetRecord[]> {
   }
 
   const pattern = `%${cleaned}%`;
+  const common = COMMON_ASSETS.filter((asset) => {
+    const candidate = `${asset.symbol} ${asset.name}`.toLowerCase();
+    return candidate.includes(cleaned.toLowerCase());
+  }).map((asset) =>
+    mapAsset({
+      id: createAssetId(asset.provider ?? 'coingecko', asset.providerCoinId),
+      provider: asset.provider ?? 'coingecko',
+      providerCoinId: asset.providerCoinId,
+      symbol: asset.symbol,
+      name: asset.name,
+      imageUrl: asset.imageUrl ?? null,
+      createdAt: '',
+      updatedAt: ''
+    })
+  );
   const local = db
     .select()
     .from(assets)
@@ -125,6 +140,10 @@ export async function searchAssets(query: string): Promise<AssetRecord[]> {
     .limit(10)
     .all()
     .map(mapAsset);
+  if (common.length > 0) {
+    const byId = new Map([...local, ...common].map((asset) => [asset.id, asset]));
+    return [...byId.values()].slice(0, 12);
+  }
 
   const cacheKey = cleaned.toLowerCase();
   const cached = searchCache.get(cacheKey);

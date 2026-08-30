@@ -27,6 +27,20 @@ npm run lint
 npm run build
 ```
 
+Browser smoke tests use Playwright Chromium:
+
+```bash
+npm run test:e2e:install
+npm run test:e2e
+```
+
+The launcher always creates a new database under the operating-system temporary directory, sets
+`NODE_ENV=test`, and supplies matching `DATABASE_PATH`/`E2E_DATABASE_PATH` values. Both Playwright
+configuration and the database client refuse to start if that guard is missing or the path is not
+inside a `krypto-dashboard-e2e-*` temporary directory. The serial smoke flow covers transaction
+create/edit/delete, close/reopen, future-date rejection, missing ROI, snapshot/analytics rendering,
+CSV export, both reset scopes, and mobile navigation. CI runs it as a separate browser job.
+
 ## Transaction Correctness
 
 All ledger-sensitive code uses one deterministic ascending order: `transactionDate`, then

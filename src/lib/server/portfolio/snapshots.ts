@@ -208,6 +208,7 @@ export function hasPortfolioSnapshots(baseCurrency: Currency): boolean {
 
 export async function ensureInitialPortfolioSnapshot(): Promise<SnapshotCreateResult | null> {
   const settings = getAppSettings();
+  if (listCurrentTransactionsWithAssets().length === 0) return null;
   if (hasPortfolioSnapshots(settings.baseCurrency)) return null;
   return createPortfolioSnapshot('hourly');
 }

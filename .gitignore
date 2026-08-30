@@ -8,6 +8,8 @@ build
 data
 .codex-dev
 coverage
+playwright-report
+test-results
 dist
 *.local
 *.db
