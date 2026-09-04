@@ -22,6 +22,11 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+async function gotoApp(page: Page, path: string): Promise<void> {
+  await page.goto(path);
+  await expect(page.locator('html')).toHaveAttribute('data-app-ready', 'true', { timeout: 20_000 });
+}
+
 async function chooseBitcoin(dialog: ReturnType<Page['getByRole']>): Promise<void> {
   const search = dialog.getByRole('combobox', { name: 'Coin' });
   await search.fill('BTC');
@@ -38,7 +43,7 @@ async function addTransaction(
     notes?: string;
   } = {}
 ): Promise<void> {
-  await page.goto('/transactions');
+  await gotoApp(page, '/transactions');
   await page.getByRole('button', { name: 'Add transaction', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add transaction' });
   await chooseBitcoin(dialog);
@@ -134,7 +139,7 @@ function tableCount(table: 'transactions' | 'news_articles' | 'settings'): numbe
 }
 
 async function performReset(page: Page, scope: 'portfolio' | 'full'): Promise<void> {
-  await page.goto('/settings');
+  await gotoApp(page, '/settings');
   const dangerZone = page.getByTestId('danger-zone');
   await dangerZone.locator('summary').click();
   await expect(dangerZone.getByRole('link', { name: 'Download' })).toBeVisible();
@@ -164,7 +169,11 @@ test.describe.serial('private portfolio smoke flow', () => {
     await edit.getByLabel('Notes').fill('edited in browser test');
     await edit.getByRole('button', { name: 'Update', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Transaction updated.');
-    await expect(page.getByText('edited in browser test')).toBeVisible();
+
+    await row.getByLabel('Edit BTC transaction').click();
+    const persistedEdit = page.getByRole('dialog', { name: 'Edit transaction' });
+    await expect(persistedEdit.getByLabel('Notes')).toHaveValue('edited in browser test');
+    await persistedEdit.getByRole('button', { name: 'Cancel' }).click();
 
     await page
       .locator('tbody tr')
@@ -186,17 +195,18 @@ test.describe.serial('private portfolio smoke flow', () => {
     await addTransaction(page, { quantity: '1', fiatAmount: '100' });
     await addTransaction(page, { type: 'sell', quantity: '1', fiatAmount: '150' });
     seedSnapshots();
-    await page.goto('/dashboard');
+    await gotoApp(page, '/dashboard');
     await expect(page.getByLabel('Portfolio summary')).toContainText('50.00%');
 
     await addTransaction(page, { quantity: '1', fiatAmount: '200' });
-    await page.goto('/dashboard');
+    await gotoApp(page, '/dashboard');
     await expect(page.getByLabel('Portfolio summary')).not.toContainText('%');
     await expect(page.locator('[aria-label="Portfolio value chart"]')).toBeVisible();
-    await page.goto('/analytics');
-    await expect(page.locator('[aria-label="Portfolio value chart"]')).toBeVisible();
+    await gotoApp(page, '/analytics');
+    await expect(page.getByRole('heading', { name: 'Analytics', exact: true })).toBeVisible();
+    await expect(page.getByText('1 portfolio value points are shown.')).toBeVisible();
 
-    await page.goto('/transactions');
+    await gotoApp(page, '/transactions');
     await page.getByRole('button', { name: 'Add transaction', exact: true }).click();
     const futureDialog = page.getByRole('dialog', { name: 'Add transaction' });
     await chooseBitcoin(futureDialog);
@@ -207,7 +217,7 @@ test.describe.serial('private portfolio smoke flow', () => {
     await expect(futureDialog.getByRole('alert')).toContainText('cannot be later than today (UTC)');
     await futureDialog.getByRole('button', { name: 'Cancel' }).click();
 
-    await page.getByRole('button', { name: 'More activity actions' }).click();
+    await page.getByLabel('More activity actions').click();
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('link', { name: 'Export CSV', exact: true }).click();
     const download = await downloadPromise;
@@ -235,11 +245,11 @@ test.describe.serial('private portfolio smoke flow', () => {
 
   test('keeps primary navigation usable at a mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/dashboard');
+    await gotoApp(page, '/dashboard');
     const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(navigation.getByLabel('Settings')).toBeVisible();
     await navigation.getByLabel('Activity').click();
-    await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
     const hasHorizontalOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1
     );

@@ -51,6 +51,7 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 
   return {
     overview,
+    hasTransactions: normalizedTransactions.length > 0,
     resetResult,
     planning,
     analyticsSummary,

@@ -21,7 +21,10 @@
     { href: '/settings', label: 'Settings', icon: Settings }
   ];
 
-  onMount(() => initializePrivacyLevel());
+  onMount(() => {
+    initializePrivacyLevel();
+    document.documentElement.dataset.appReady = 'true';
+  });
 
   function togglePrivacy() {
     setPrivacyLevel(nextPrivacyLevel($privacyLevel));

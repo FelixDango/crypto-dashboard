@@ -20,6 +20,7 @@
 
   export let data: {
     overview: PortfolioOverview;
+    hasTransactions: boolean;
     planning: PortfolioPlanning;
     analyticsSummary: AnalyticsSummary;
     snapshotRange: SnapshotRange;
@@ -178,7 +179,7 @@
 <section class="page portfolio-page">
   <div class="page-header portfolio-header">
     <h1>Portfolio</h1>
-    {#if openHoldings.length > 0}
+    {#if data.hasTransactions}
       <a class="btn primary add-transaction" href="/transactions?new=1">
         <Plus size={18} />
         Add transaction
@@ -205,7 +206,7 @@
     </div>
   {/if}
 
-  {#if openHoldings.length === 0}
+  {#if !data.hasTransactions}
     <section class="first-entry" aria-labelledby="first-entry-heading">
       <span class="empty-icon"><WalletCards size={24} /></span>
       <div class="first-entry-copy">
@@ -245,7 +246,7 @@
             <span class:attention={overview.totals.stalePriceCount > 0} class="status-dot"></span>
             <span>
               {#if openHoldings.length === 0}
-                Ready when you are
+                No open positions
               {:else if latestPriceAt}
                 Updated {formatDateTime(latestPriceAt)}
               {:else}
@@ -281,50 +282,48 @@
             </strong>
             <span>{rangeCopy(selectedRange)}</span>
           {:else if openHoldings.length === 0}
-            <span>Add your first transaction to begin.</span>
+            <span>No open positions. Historical return is shown below.</span>
           {:else}
             <span>Performance change needs more snapshot history.</span>
           {/if}
         </div>
 
-        {#if openHoldings.length > 0}
-          <div class="summary-facts" aria-label="Portfolio summary">
-            <div>
-              <span>Total return</span>
-              <strong
-                class={overview.totals.roiPercent === null
-                  ? 'muted'
-                  : signedClass(overview.totals.totalProfit)}
-              >
-                <PrivacyValue value={signedCurrency(overview.totals.totalProfit)} kind="fiat" />
-                {#if overview.totals.roiPercent !== null}
-                  · {signedPercent(overview.totals.roiPercent)}
-                {/if}
-              </strong>
-            </div>
-            <div>
-              <span>Cost basis</span>
-              <PrivacyValue
-                className="summary-value"
-                value={formatCurrency(overview.totals.openCostBasis, currency)}
-                kind="fiat"
-              />
-            </div>
-            <a href="/plan" aria-label="Open portfolio goal">
-              <span>Goal</span>
-              <strong>
-                {#if data.planning.plan && data.planning.goal && goalProgress != null}
-                  {formatPercent(goalProgress)} · {formatCurrency(
-                    data.planning.goal.targetValue,
-                    data.planning.plan.currency
-                  )}
-                {:else}
-                  Set target
-                {/if}
-              </strong>
-            </a>
+        <div class="summary-facts" aria-label="Portfolio summary">
+          <div>
+            <span>Total return</span>
+            <strong
+              class={overview.totals.roiPercent === null
+                ? 'muted'
+                : signedClass(overview.totals.totalProfit)}
+            >
+              <PrivacyValue value={signedCurrency(overview.totals.totalProfit)} kind="fiat" />
+              {#if overview.totals.roiPercent !== null}
+                · {signedPercent(overview.totals.roiPercent)}
+              {/if}
+            </strong>
           </div>
-        {/if}
+          <div>
+            <span>Cost basis</span>
+            <PrivacyValue
+              className="summary-value"
+              value={formatCurrency(overview.totals.openCostBasis, currency)}
+              kind="fiat"
+            />
+          </div>
+          <a href="/plan" aria-label="Open portfolio goal">
+            <span>Goal</span>
+            <strong>
+              {#if data.planning.plan && data.planning.goal && goalProgress != null}
+                {formatPercent(goalProgress)} · {formatCurrency(
+                  data.planning.goal.targetValue,
+                  data.planning.plan.currency
+                )}
+              {:else}
+                Set target
+              {/if}
+            </strong>
+          </a>
+        </div>
 
         <div class="chart-controls">
           <nav class="range-tabs" aria-label="Portfolio range">
@@ -343,15 +342,7 @@
         </div>
 
         <div class="chart-region">
-          {#if openHoldings.length === 0}
-            <div class="empty-portfolio">
-              <span class="empty-icon"><WalletCards size={24} /></span>
-              <div>
-                <h2>Start your portfolio</h2>
-                <p>Your value, performance, and holdings will appear after your first entry.</p>
-              </div>
-            </div>
-          {:else if !snapshotSeries.hasSnapshots || overview.portfolioSeries.length === 0}
+          {#if !snapshotSeries.hasSnapshots || overview.portfolioSeries.length === 0}
             <div class="empty-portfolio">
               <span class="empty-icon"><BarChart3 size={24} /></span>
               <div>
@@ -384,8 +375,8 @@
         {#if openHoldings.length === 0}
           <div class="holdings-empty">
             <span class="empty-icon"><WalletCards size={24} /></span>
-            <h2>No assets yet</h2>
-            <p>Assets appear here after your first transaction.</p>
+            <h2>No open positions</h2>
+            <p>Closed positions remain available in Activity.</p>
           </div>
         {:else}
           <div class="holding-columns" aria-hidden="true">

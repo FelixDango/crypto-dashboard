@@ -351,7 +351,6 @@
             ? 'Add a buy or sell to start building your portfolio history.'
             : 'Try changing the search term or transaction type.'}
         </p>
-        <button class="btn primary" type="button" on:click={openAdd}>Add transaction</button>
       </div>
     {:else}
       <div class="table-wrap mobile-cards">

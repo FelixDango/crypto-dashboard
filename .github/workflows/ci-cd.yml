@@ -133,7 +133,9 @@ jobs:
   deploy:
     name: Deploy production
     runs-on: ubuntu-latest
-    needs: docker
+    needs:
+      - docker
+      - e2e
     environment:
       name: production
     if: >-
