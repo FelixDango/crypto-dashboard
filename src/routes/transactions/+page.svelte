@@ -5,7 +5,17 @@
   import type { SubmitFunction } from '@sveltejs/kit';
   import { onMount, tick } from 'svelte';
   import Decimal from 'decimal.js';
-  import { Download, Pencil, Plus, Search, Trash2, TriangleAlert, Upload, X } from '@lucide/svelte';
+  import {
+    Download,
+    Ellipsis,
+    Pencil,
+    Plus,
+    Search,
+    Trash2,
+    TriangleAlert,
+    Upload,
+    X
+  } from '@lucide/svelte';
   import AssetSearch from '$lib/components/AssetSearch.svelte';
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
@@ -78,6 +88,15 @@
     const matchesQuery = text.includes(query.toLowerCase());
     const matchesType = typeFilter === 'all' || transaction.type === typeFilter;
     return matchesQuery && matchesType;
+  });
+  $: showFilters = data.transactions.length > 8;
+  $: showFees = data.transactions.some((transaction) => {
+    if (!transaction.feeAmount) return false;
+    try {
+      return new Decimal(transaction.feeAmount).gt(0);
+    } catch {
+      return false;
+    }
   });
   $: openQuantityByAsset = data.transactions.reduce((balances, transaction) => {
     const current = balances.get(transaction.assetId) ?? new Decimal(0);
@@ -274,21 +293,29 @@
 <section class="page">
   <div class="page-header">
     <div class="page-title">
-      <h1>Transactions</h1>
+      <h1>Activity</h1>
       <p class="muted">{data.transactions.length} manual entries</p>
     </div>
     <div class="toolbar">
-      <a class="btn" href="/api/export?type=transactions">
-        <Download size={17} />
-        CSV
-      </a>
-      <button class="btn" type="button" on:click={openImport}>
-        <Upload size={17} />
-        Import
-      </button>
+      <details class="secondary-actions">
+        <summary class="btn" aria-label="More activity actions">
+          <Ellipsis size={18} />
+          More
+        </summary>
+        <div class="action-menu">
+          <a href="/api/export?type=transactions" aria-label="Export CSV">
+            <Download size={17} />
+            Export CSV
+          </a>
+          <button type="button" aria-label="Import CSV" on:click={openImport}>
+            <Upload size={17} />
+            Import CSV
+          </button>
+        </div>
+      </details>
       <button class="btn primary" type="button" on:click={openAdd}>
         <Plus size={17} />
-        Add
+        Add transaction
       </button>
     </div>
   </div>
@@ -301,22 +328,29 @@
     <div class="notice success" role="status" aria-live="polite">{successMessage}</div>
   {/if}
 
-  <section class="card controls">
-    <div class="search-control">
-      <Search size={17} />
-      <input bind:value={query} placeholder="Filter by asset or note" />
-    </div>
-    <select bind:value={typeFilter} aria-label="Filter by transaction type">
-      <option value="all">All types</option>
-      <option value="buy">Buys</option>
-      <option value="sell">Sells</option>
-    </select>
-  </section>
+  {#if showFilters}
+    <section class="controls" aria-label="Activity filters">
+      <div class="search-control">
+        <Search size={17} />
+        <input bind:value={query} placeholder="Filter by asset or note" />
+      </div>
+      <select bind:value={typeFilter} aria-label="Filter by transaction type">
+        <option value="all">All types</option>
+        <option value="buy">Buys</option>
+        <option value="sell">Sells</option>
+      </select>
+    </section>
+  {/if}
 
   <section class="card list-card">
     {#if filtered.length === 0}
       <div class="empty-state">
-        <h2>No matching transactions</h2>
+        <h2>{data.transactions.length === 0 ? 'No activity yet' : 'No matching activity'}</h2>
+        <p class="muted">
+          {data.transactions.length === 0
+            ? 'Add a buy or sell to start building your portfolio history.'
+            : 'Try changing the search term or transaction type.'}
+        </p>
         <button class="btn primary" type="button" on:click={openAdd}>Add transaction</button>
       </div>
     {:else}
@@ -329,8 +363,7 @@
               <th>Type</th>
               <th>Quantity</th>
               <th>Fiat</th>
-              <th>Fee</th>
-              <th>Notes</th>
+              {#if showFees}<th>Fee</th>{/if}
               <th aria-label="Actions"></th>
             </tr>
           </thead>
@@ -369,20 +402,21 @@
                     kind="fiat"
                   /></td
                 >
-                <td data-label="Fee">
-                  {#if transaction.feeAmount}
-                    <PrivacyValue
-                      value={formatCurrency(
-                        transaction.feeAmount,
-                        transaction.feeCurrency ?? transaction.fiatCurrency
-                      )}
-                      kind="fiat"
-                    />
-                  {:else}
-                    <span class="muted">-</span>
-                  {/if}
-                </td>
-                <td data-label="Notes" class="notes">{transaction.notes ?? '-'}</td>
+                {#if showFees}
+                  <td data-label="Fee">
+                    {#if transaction.feeAmount}
+                      <PrivacyValue
+                        value={formatCurrency(
+                          transaction.feeAmount,
+                          transaction.feeCurrency ?? transaction.fiatCurrency
+                        )}
+                        kind="fiat"
+                      />
+                    {:else}
+                      <span class="muted">-</span>
+                    {/if}
+                  </td>
+                {/if}
                 <td data-label="Actions">
                   <div class="row-actions">
                     <button
@@ -789,6 +823,52 @@
     gap: 0.5rem;
   }
 
+  .secondary-actions {
+    position: relative;
+  }
+
+  .secondary-actions summary {
+    list-style: none;
+  }
+
+  .secondary-actions summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .action-menu {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    display: grid;
+    min-width: 180px;
+    padding: 0.4rem;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.45rem);
+    z-index: 20;
+  }
+
+  .action-menu a,
+  .action-menu button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    gap: 0.65rem;
+    min-height: 2.65rem;
+    padding: 0 0.7rem;
+    text-align: left;
+  }
+
+  .action-menu a:hover,
+  .action-menu button:hover {
+    background: var(--surface-soft);
+  }
+
   .controls {
     align-items: center;
     display: grid;
@@ -851,13 +931,6 @@
   .type-sell {
     background: rgba(251, 113, 133, 0.14);
     color: var(--negative);
-  }
-
-  .notes {
-    color: var(--muted);
-    max-width: 280px;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .confirm {
@@ -934,7 +1007,17 @@
 
     .toolbar {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: auto minmax(0, 1fr);
+      width: 100%;
+    }
+
+    .toolbar > .btn {
+      width: 100%;
+    }
+
+    .action-menu {
+      left: 0;
+      right: auto;
     }
   }
 </style>

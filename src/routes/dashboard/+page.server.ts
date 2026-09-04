@@ -1,20 +1,18 @@
-import { fail } from '@sveltejs/kit';
-import type { Actions, PageServerLoad } from './$types';
-import { getPortfolioOverview } from '$lib/server/portfolio/service';
+import type { PageServerLoad } from './$types';
+import { getPortfolioOverviewContext } from '$lib/server/portfolio/service';
 import {
-  createPortfolioSnapshot,
   ensureInitialPortfolioSnapshot,
   parseSnapshotRange,
   SNAPSHOT_RANGES
 } from '$lib/server/portfolio/snapshots';
-import { generateCycleWindows, getCycleProgress } from '$lib/server/insights/market-cycle';
 import { getPortfolioPlanning } from '$lib/server/planning/service';
 import { RESET_CATEGORY_LABELS, resetCategories, type ResetResult } from '$lib/server/reset';
+import { getAnalyticsSummary } from '$lib/server/analytics/service';
 
 export const load: PageServerLoad = async ({ url, cookies }) => {
-  const snapshotRange = parseSnapshotRange(url.searchParams.get('range'));
+  const snapshotRange = parseSnapshotRange(url.searchParams.get('range') ?? '30d');
   await ensureInitialPortfolioSnapshot();
-  const overview = await getPortfolioOverview({ snapshotRange });
+  const { overview, normalizedTransactions } = await getPortfolioOverviewContext({ snapshotRange });
   let resetResult: null | {
     scope: ResetResult['scope'];
     totalRows: number;
@@ -42,33 +40,21 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
     cookies.delete('reset_result', { path: '/' });
   }
 
+  const [planning, analyticsSummary] = await Promise.all([
+    getPortfolioPlanning(overview),
+    getAnalyticsSummary({
+      baseCurrency: overview.totals.baseCurrency,
+      overview,
+      normalizedTransactions
+    })
+  ]);
+
   return {
     overview,
     resetResult,
-    planning: await getPortfolioPlanning(overview),
-    cycle: getCycleProgress(new Date()),
-    cycleWindows: generateCycleWindows(
-      new Date('2022-11-08T00:00:00.000Z'),
-      new Date('2038-07-02T00:00:00.000Z')
-    ),
+    planning,
+    analyticsSummary,
     snapshotRange,
     snapshotRanges: SNAPSHOT_RANGES
   };
-};
-
-export const actions: Actions = {
-  createSnapshot: async () => {
-    try {
-      const snapshot = await createPortfolioSnapshot('hourly');
-      return {
-        snapshotResult: snapshot.result,
-        snapshotBucket: snapshot.bucket
-      };
-    } catch (error) {
-      return fail(500, {
-        snapshotError:
-          error instanceof Error ? error.message : 'Snapshot creation failed. Please try again.'
-      });
-    }
-  }
 };

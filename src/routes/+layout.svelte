@@ -1,20 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import {
-    Activity,
-    BarChart3,
-    Coins,
-    Eye,
-    EyeOff,
-    Home,
-    Lightbulb,
-    ListChecks,
-    Newspaper,
-    Target,
-    Settings,
-    Shield
-  } from '@lucide/svelte';
+  import { BarChart3, Eye, EyeOff, ListChecks, Settings, Shield } from '@lucide/svelte';
   import {
     initializePrivacyLevel,
     nextPrivacyLevel,
@@ -25,26 +12,16 @@
 
   export let data: {
     appName: string;
-    settings: {
-      baseCurrency: 'EUR' | 'USD';
-      priceProvider: string;
-    };
+    settings: { baseCurrency: 'EUR' | 'USD'; priceProvider: string };
   };
 
   const nav = [
-    { href: '/dashboard', label: 'Dashboard', icon: Home },
-    { href: '/analytics', label: 'Analytics', icon: Activity },
-    { href: '/plan', label: 'Plan', icon: Target },
-    { href: '/insights', label: 'Insights', icon: Lightbulb },
-    { href: '/news', label: 'News', icon: Newspaper },
-    { href: '/transactions', label: 'Transactions', icon: ListChecks },
-    { href: '/assets', label: 'Assets', icon: Coins },
+    { href: '/dashboard', label: 'Portfolio', icon: BarChart3 },
+    { href: '/transactions', label: 'Activity', icon: ListChecks },
     { href: '/settings', label: 'Settings', icon: Settings }
   ];
 
-  onMount(() => {
-    initializePrivacyLevel();
-  });
+  onMount(() => initializePrivacyLevel());
 
   function togglePrivacy() {
     setPrivacyLevel(nextPrivacyLevel($privacyLevel));
@@ -58,7 +35,7 @@
 <div class="app-shell">
   <aside class="sidebar">
     <a class="brand" href="/dashboard" aria-label={data.appName}>
-      <span class="brand-mark"><BarChart3 size={20} /></span>
+      <span class="brand-mark"><BarChart3 size={21} strokeWidth={1.8} /></span>
       <span>{data.appName}</span>
     </a>
 
@@ -70,39 +47,35 @@
           aria-label={item.label}
           aria-current={$page.url.pathname.startsWith(item.href) ? 'page' : undefined}
         >
-          <svelte:component this={item.icon} size={18} aria-hidden="true" />
+          <svelte:component this={item.icon} size={20} strokeWidth={1.8} aria-hidden="true" />
           <span>{item.label}</span>
         </a>
       {/each}
     </nav>
 
-    <button
-      class="privacy-toggle"
-      type="button"
-      aria-pressed={$privacyLevel !== 'off'}
-      aria-label={privacyLevelLabel($privacyLevel)}
-      title={privacyLevelLabel($privacyLevel)}
-      on:click={togglePrivacy}
-    >
-      {#if $privacyLevel === 'strict'}
-        <Shield size={18} />
-      {:else if $privacyLevel === 'basic'}
-        <EyeOff size={18} />
-      {:else}
-        <Eye size={18} />
-      {/if}
-      <span>{privacyLevelLabel($privacyLevel)}</span>
-    </button>
+    <div class="sidebar-utilities">
+      <button
+        class="privacy-toggle"
+        type="button"
+        aria-pressed={$privacyLevel !== 'off'}
+        aria-label={privacyLevelLabel($privacyLevel)}
+        title={privacyLevelLabel($privacyLevel)}
+        on:click={togglePrivacy}
+      >
+        {#if $privacyLevel === 'strict'}
+          <Shield size={19} strokeWidth={1.8} />
+        {:else if $privacyLevel === 'basic'}
+          <EyeOff size={19} strokeWidth={1.8} />
+        {:else}
+          <Eye size={19} strokeWidth={1.8} />
+        {/if}
+        <span>{privacyLevelLabel($privacyLevel)}</span>
+      </button>
 
-    <div class="sidebar-footer">
-      <span>{data.settings.baseCurrency}</span>
-      <small>{data.settings.priceProvider}</small>
     </div>
   </aside>
 
-  <main>
-    <slot />
-  </main>
+  <main><slot /></main>
 </div>
 
 <style>
@@ -112,33 +85,34 @@
 
   :global(:root) {
     color-scheme: dark;
-    --bg: #0c0f12;
-    --bg-elevated: #11161b;
-    --surface: #161b20;
-    --surface-soft: #1d242a;
-    --surface-strong: #222a31;
-    --border: #2a343b;
-    --border-strong: #3a464f;
-    --text: #edf2f4;
-    --muted: #99a5ad;
-    --subtle: #707c84;
-    --accent: #2dd4bf;
-    --accent-strong: #14b8a6;
-    --amber: #f59e0b;
-    --blue: #60a5fa;
-    --positive: #22c55e;
-    --negative: #fb7185;
-    --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    --bg: #0b1014;
+    --bg-elevated: #0f151a;
+    --surface: #12191f;
+    --surface-soft: #182027;
+    --surface-strong: #202a32;
+    --border: #263039;
+    --border-strong: #36434d;
+    --text: #f2f5f5;
+    --muted: #9aa7b0;
+    --subtle: #77848d;
+    --accent: #35d6cb;
+    --accent-strong: #24c4ba;
+    --amber: #f0ad4e;
+    --blue: #5ca8ff;
+    --positive: #4ad394;
+    --negative: #ff6b72;
+    --shadow: 0 24px 60px rgba(0, 0, 0, 0.38);
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
   }
 
-  :global(html) {
+  :global(html),
+  :global(body) {
     background: var(--bg);
   }
 
   :global(body) {
-    background:
-      linear-gradient(135deg, rgba(45, 212, 191, 0.08), transparent 34rem),
-      linear-gradient(180deg, #101419 0%, var(--bg) 45%);
     color: var(--text);
     font-family:
       Inter,
@@ -151,6 +125,7 @@
     margin: 0;
     min-height: 100vh;
     overflow-x: hidden;
+    text-rendering: optimizeLegibility;
   }
 
   :global(a) {
@@ -166,62 +141,69 @@
   }
 
   :global(a:focus-visible),
-  :global(button:focus-visible) {
+  :global(button:focus-visible),
+  :global(input:focus-visible),
+  :global(select:focus-visible),
+  :global(textarea:focus-visible) {
     outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    outline-offset: 3px;
   }
 
   .app-shell {
     display: grid;
-    grid-template-columns: 252px minmax(0, 1fr);
+    grid-template-columns: 202px minmax(0, 1fr);
     min-height: 100vh;
   }
 
   .sidebar {
-    background: rgba(13, 17, 21, 0.86);
+    background: var(--bg-elevated);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    padding: 1.1rem;
+    gap: 2.6rem;
+    height: 100vh;
+    padding: 1.5rem 1rem 1.25rem;
     position: sticky;
     top: 0;
-    height: 100vh;
+    z-index: 30;
   }
 
   .brand {
     align-items: center;
     display: flex;
-    font-weight: 800;
-    gap: 0.75rem;
-    min-height: 2.8rem;
+    font-size: 0.96rem;
+    font-weight: 750;
+    gap: 0.65rem;
+    letter-spacing: -0.01em;
+    min-height: 2.6rem;
+    padding: 0 0.55rem;
   }
 
   .brand-mark {
     align-items: center;
-    background: linear-gradient(135deg, var(--accent), var(--blue));
-    border-radius: 8px;
-    color: #07110f;
+    color: var(--accent);
     display: inline-flex;
-    height: 2.35rem;
+    height: 2rem;
     justify-content: center;
-    width: 2.35rem;
+    width: 2rem;
   }
 
   nav {
     display: grid;
-    gap: 0.3rem;
+    gap: 0.35rem;
   }
 
   nav a {
     align-items: center;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--muted);
     display: flex;
-    gap: 0.75rem;
-    min-height: 2.65rem;
-    padding: 0 0.8rem;
+    gap: 0.8rem;
+    min-height: 3.45rem;
+    padding: 0 0.85rem;
+    transition:
+      background 120ms ease,
+      color 120ms ease;
   }
 
   nav a:hover,
@@ -229,38 +211,32 @@
   .privacy-toggle:hover,
   .privacy-toggle[aria-pressed='true'] {
     background: var(--surface-soft);
-    border-color: var(--border);
     color: var(--text);
+  }
+
+  nav a.active {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .sidebar-utilities {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: auto;
   }
 
   .privacy-toggle {
     align-items: center;
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
     color: var(--muted);
     cursor: pointer;
     display: flex;
-    gap: 0.75rem;
-    min-height: 2.65rem;
-    padding: 0 0.8rem;
+    gap: 0.8rem;
+    min-height: 2.9rem;
+    padding: 0 0.75rem;
     text-align: left;
     width: 100%;
-  }
-
-  .sidebar-footer {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--muted);
-    display: grid;
-    gap: 0.15rem;
-    margin-top: auto;
-    padding: 0.85rem;
-  }
-
-  .sidebar-footer span {
-    color: var(--text);
-    font-weight: 700;
   }
 
   main {
@@ -269,8 +245,8 @@
 
   :global(.page) {
     margin: 0 auto;
-    max-width: 1440px;
-    padding: 1.6rem;
+    max-width: 1500px;
+    padding: 2.5rem clamp(1.5rem, 3vw, 3.25rem) 3rem;
   }
 
   :global(.page-header) {
@@ -278,12 +254,12 @@
     display: flex;
     gap: 1rem;
     justify-content: space-between;
-    margin-bottom: 1.4rem;
+    margin-bottom: 1.75rem;
   }
 
   :global(.page-title) {
     display: grid;
-    gap: 0.35rem;
+    gap: 0.4rem;
   }
 
   :global(h1),
@@ -294,13 +270,15 @@
   }
 
   :global(h1) {
-    font-size: clamp(1.8rem, 3vw, 2.55rem);
-    letter-spacing: 0;
-    line-height: 1.05;
+    font-size: clamp(1.8rem, 2.6vw, 2.4rem);
+    font-weight: 760;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
   }
 
   :global(h2) {
     font-size: 1.05rem;
+    letter-spacing: -0.015em;
   }
 
   :global(.muted) {
@@ -321,11 +299,10 @@
   }
 
   :global(.card) {
-    background: rgba(22, 27, 32, 0.92);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
-    padding: 1rem;
+    border-radius: var(--radius-md);
+    padding: 1.15rem;
   }
 
   :global(.metric-card) {
@@ -341,7 +318,7 @@
 
   :global(.metric-card .value) {
     font-size: clamp(1.45rem, 2.4vw, 2rem);
-    font-weight: 800;
+    font-weight: 760;
     line-height: 1.05;
     overflow-wrap: anywhere;
   }
@@ -367,41 +344,61 @@
     align-items: center;
     background: var(--surface-soft);
     border: 1px solid var(--border-strong);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--text);
     cursor: pointer;
     display: inline-flex;
+    font-size: 0.9rem;
     gap: 0.5rem;
     justify-content: center;
-    min-height: 2.55rem;
+    min-height: 2.7rem;
     min-width: 0;
-    padding: 0 0.9rem;
+    padding: 0 0.95rem;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease,
+      transform 120ms ease;
   }
 
   :global(.btn:hover) {
     background: var(--surface-strong);
+    border-color: #465561;
+  }
+
+  :global(.btn:active) {
+    transform: translateY(1px);
+  }
+
+  :global(.btn:disabled) {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
 
   :global(.btn.primary) {
     background: var(--accent);
     border-color: var(--accent);
-    color: #06100e;
-    font-weight: 800;
+    color: #061312;
+    font-weight: 760;
+  }
+
+  :global(.btn.primary:hover) {
+    background: #55e0d7;
+    border-color: #55e0d7;
   }
 
   :global(.btn.danger) {
-    border-color: rgba(251, 113, 133, 0.42);
+    border-color: rgba(255, 107, 114, 0.4);
     color: var(--negative);
   }
 
   :global(.btn.icon) {
-    min-width: 2.4rem;
+    min-width: 2.7rem;
     padding: 0;
   }
 
   :global(.table-wrap) {
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: auto;
   }
 
@@ -414,7 +411,7 @@
   :global(th),
   :global(td) {
     border-bottom: 1px solid var(--border);
-    padding: 0.85rem 0.9rem;
+    padding: 0.9rem 1rem;
     text-align: left;
     vertical-align: middle;
     white-space: nowrap;
@@ -422,8 +419,9 @@
 
   :global(th) {
     color: var(--muted);
-    font-size: 0.78rem;
-    font-weight: 700;
+    font-size: 0.76rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
   }
 
@@ -433,7 +431,7 @@
 
   :global(.field-grid) {
     display: grid;
-    gap: 0.8rem;
+    gap: 0.85rem;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -456,9 +454,9 @@
   :global(textarea) {
     background: var(--surface-soft);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     color: var(--text);
-    min-height: 2.75rem;
+    min-height: 2.8rem;
     padding: 0 0.8rem;
     width: 100%;
   }
@@ -473,7 +471,6 @@
   :global(select:focus),
   :global(textarea:focus) {
     border-color: var(--accent);
-    outline: 2px solid rgba(45, 212, 191, 0.16);
   }
 
   :global(.field-hint) {
@@ -486,20 +483,20 @@
     display: grid;
     gap: 0.8rem;
     justify-items: start;
-    min-height: 220px;
+    min-height: 210px;
   }
 
   :global(.notice) {
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid rgba(245, 158, 11, 0.28);
-    border-radius: 8px;
-    color: #f8d891;
-    padding: 0.85rem;
+    background: rgba(240, 173, 78, 0.1);
+    border: 1px solid rgba(240, 173, 78, 0.3);
+    border-radius: var(--radius-sm);
+    color: #f2cf91;
+    padding: 0.9rem;
   }
 
   :global(.modal-backdrop) {
     align-items: center;
-    background: rgba(0, 0, 0, 0.68);
+    background: rgba(0, 0, 0, 0.72);
     display: flex;
     inset: 0;
     justify-content: center;
@@ -511,12 +508,12 @@
   :global(.modal) {
     background: var(--surface);
     border: 1px solid var(--border-strong);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow);
     max-height: 92vh;
     max-width: 720px;
     overflow: auto;
-    padding: 1rem;
+    padding: 1.25rem;
     width: min(720px, 100%);
   }
 
@@ -539,92 +536,91 @@
     :global(.metric-grid) {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-  }
-
-  @media (max-width: 1180px) {
-    .app-shell {
-      grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-      align-items: center;
-      backdrop-filter: blur(14px);
-      flex-direction: row;
-      gap: 0.75rem;
-      height: auto;
-      overflow-x: auto;
-      padding: 0.8rem max(0.85rem, env(safe-area-inset-right)) 0.8rem
-        max(0.85rem, env(safe-area-inset-left));
-      position: sticky;
-      z-index: 30;
-    }
-
-    .brand span:last-child,
-    .sidebar-footer {
-      display: none;
-    }
-
-    nav {
-      display: flex;
-      flex: 1;
-      justify-content: flex-end;
-      min-width: max-content;
-    }
-
-    .privacy-toggle {
-      flex: 0 0 auto;
-      min-width: max-content;
-      width: auto;
-    }
 
     :global(.two-column) {
       grid-template-columns: 1fr;
     }
   }
 
-  @media (max-width: 680px) {
+  @media (max-width: 900px) {
+    .app-shell {
+      grid-template-columns: 1fr;
+    }
+
     .sidebar {
-      gap: 0.5rem;
-      padding-bottom: 0.65rem;
-      padding-top: 0.65rem;
-    }
-
-    .brand,
-    .brand-mark {
-      min-height: 2.35rem;
-    }
-
-    .brand-mark {
-      height: 2.25rem;
-      width: 2.25rem;
-    }
-
-    nav {
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      border-right: 0;
+      flex-direction: row;
+      gap: 1rem;
+      height: 4.25rem;
       justify-content: space-between;
-      min-width: 0;
+      padding: 0.65rem 1rem;
     }
 
-    nav a {
-      justify-content: center;
-      min-height: 2.4rem;
-      min-width: 2.4rem;
+    .brand {
       padding: 0;
+    }
+
+    .sidebar nav {
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border);
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      left: 0;
+      padding: 0.45rem max(0.75rem, env(safe-area-inset-right))
+        calc(0.45rem + env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+      position: fixed;
+      right: 0;
+      z-index: 40;
+    }
+
+    .sidebar nav a {
+      display: grid;
+      font-size: 0.72rem;
+      gap: 0.15rem;
+      justify-items: center;
+      min-height: 3.4rem;
+      padding: 0.35rem;
+    }
+
+    .sidebar nav a.active {
+      box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    .sidebar-utilities {
+      margin: 0;
     }
 
     .privacy-toggle {
       justify-content: center;
-      min-height: 2.4rem;
-      min-width: 2.4rem;
+      min-width: 2.75rem;
       padding: 0;
+      width: 2.75rem;
+    }
+
+    .privacy-toggle span {
+      display: none;
+    }
+
+    main {
+      padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+    }
+  }
+
+  @media (max-width: 680px) {
+    .brand span:last-child {
+      font-size: 0.9rem;
     }
 
     :global(.page) {
-      padding: 0.9rem 0.85rem 1.25rem;
+      padding: 1.35rem 1rem 2rem;
     }
 
     :global(.page-header) {
       display: grid;
-      gap: 0.85rem;
+      gap: 1rem;
       grid-template-columns: 1fr;
     }
 
@@ -635,16 +631,13 @@
       width: 100%;
     }
 
-    :global(.metric-grid) {
+    :global(.metric-grid),
+    :global(.field-grid) {
       grid-template-columns: 1fr;
     }
 
     :global(.card) {
-      padding: 0.85rem;
-    }
-
-    :global(.field-grid) {
-      grid-template-columns: 1fr;
+      padding: 1rem;
     }
 
     :global(.modal-backdrop) {
@@ -656,14 +649,14 @@
     :global(.modal) {
       max-height: calc(100dvh - 1.5rem);
       overflow: auto;
-      padding: 0.85rem;
+      padding: 1rem;
     }
 
     :global(.modal-actions) {
       background: var(--surface);
+      bottom: -1rem;
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      bottom: -0.85rem;
       padding-top: 0.75rem;
       position: sticky;
     }
@@ -703,12 +696,12 @@
     }
 
     :global(.mobile-card-table tr) {
-      background: rgba(22, 27, 32, 0.92);
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       display: grid;
       gap: 0.65rem;
-      padding: 0.85rem;
+      padding: 0.9rem;
     }
 
     :global(.mobile-card-table td) {
@@ -723,7 +716,8 @@
       color: var(--subtle);
       content: attr(data-label);
       font-size: 0.72rem;
-      font-weight: 800;
+      font-weight: 700;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
     }
 
@@ -744,11 +738,6 @@
       max-width: none;
       overflow: visible;
       text-overflow: unset;
-    }
-
-    nav a span,
-    .privacy-toggle span {
-      display: none;
     }
   }
 </style>

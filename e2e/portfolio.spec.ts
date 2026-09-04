@@ -39,7 +39,7 @@ async function addTransaction(
   } = {}
 ): Promise<void> {
   await page.goto('/transactions');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: 'Add transaction', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add transaction' });
   await chooseBitcoin(dialog);
   await dialog.getByLabel('Type').selectOption(input.type ?? 'buy');
@@ -136,7 +136,8 @@ function tableCount(table: 'transactions' | 'news_articles' | 'settings'): numbe
 async function performReset(page: Page, scope: 'portfolio' | 'full'): Promise<void> {
   await page.goto('/settings');
   const dangerZone = page.getByTestId('danger-zone');
-  await expect(dangerZone.getByRole('link', { name: 'Download backup' })).toBeVisible();
+  await dangerZone.locator('summary').click();
+  await expect(dangerZone.getByRole('link', { name: 'Download' })).toBeVisible();
   await dangerZone
     .getByLabel(scope === 'portfolio' ? 'Portfolio and planning' : 'Full historical data')
     .check();
@@ -149,7 +150,9 @@ async function performReset(page: Page, scope: 'portfolio' | 'full'): Promise<vo
   await submit.click();
   await expect(page).toHaveURL(/\/dashboard\?reset=complete$/);
   await expect(page.getByTestId('reset-success')).toContainText('Reset complete');
-  await expect(page.getByRole('heading', { name: 'No transactions yet' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Start with your first transaction' })
+  ).toBeVisible();
 }
 
 test.describe.serial('private portfolio smoke flow', () => {
@@ -174,7 +177,7 @@ test.describe.serial('private portfolio smoke flow', () => {
       .getByRole('button', { name: 'Delete', exact: true })
       .click();
     await expect(page.getByRole('status')).toContainText('Transaction deleted.');
-    await expect(page.getByRole('heading', { name: 'No matching transactions' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No activity yet' })).toBeVisible();
   });
 
   test('closes and reopens a position, rejects the future, renders missing ROI and analytics, and exports CSV', async ({
@@ -184,19 +187,17 @@ test.describe.serial('private portfolio smoke flow', () => {
     await addTransaction(page, { type: 'sell', quantity: '1', fiatAmount: '150' });
     seedSnapshots();
     await page.goto('/dashboard');
-    await expect(page.locator('article').filter({ hasText: 'Total ROI' })).toContainText('50.00%');
+    await expect(page.getByLabel('Portfolio summary')).toContainText('50.00%');
 
     await addTransaction(page, { quantity: '1', fiatAmount: '200' });
     await page.goto('/dashboard');
-    await expect(page.locator('article').filter({ hasText: 'Total ROI' })).toContainText(
-      'Unavailable until missing price or FX data recovers'
-    );
+    await expect(page.getByLabel('Portfolio summary')).not.toContainText('%');
     await expect(page.locator('[aria-label="Portfolio value chart"]')).toBeVisible();
     await page.goto('/analytics');
     await expect(page.locator('[aria-label="Portfolio value chart"]')).toBeVisible();
 
     await page.goto('/transactions');
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'Add transaction', exact: true }).click();
     const futureDialog = page.getByRole('dialog', { name: 'Add transaction' });
     await chooseBitcoin(futureDialog);
     await futureDialog.getByLabel('Date').fill('2099-01-01');
@@ -206,8 +207,9 @@ test.describe.serial('private portfolio smoke flow', () => {
     await expect(futureDialog.getByRole('alert')).toContainText('cannot be later than today (UTC)');
     await futureDialog.getByRole('button', { name: 'Cancel' }).click();
 
+    await page.getByRole('button', { name: 'More activity actions' }).click();
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('link', { name: 'CSV', exact: true }).click();
+    await page.getByRole('link', { name: 'Export CSV', exact: true }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/transactions.*\.csv/i);
   });
@@ -236,8 +238,8 @@ test.describe.serial('private portfolio smoke flow', () => {
     await page.goto('/dashboard');
     const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(navigation.getByLabel('Settings')).toBeVisible();
-    await navigation.getByLabel('Transactions').click();
-    await expect(page.getByRole('heading', { name: 'Transactions' })).toBeVisible();
+    await navigation.getByLabel('Activity').click();
+    await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible();
     const hasHorizontalOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1
     );

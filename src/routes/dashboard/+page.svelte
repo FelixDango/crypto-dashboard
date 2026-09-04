@@ -1,20 +1,32 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
-  import { ArrowRight, Camera, Plus, RefreshCw, Target, TriangleAlert } from '@lucide/svelte';
+  import {
+    BarChart3,
+    ChevronRight,
+    Plus,
+    RefreshCw,
+    TriangleAlert,
+    WalletCards
+  } from '@lucide/svelte';
+  import Decimal from 'decimal.js';
   import type { EChartsOption } from 'echarts';
   import Chart from '$lib/components/Chart.svelte';
-  import CycleCard from '$lib/components/CycleCard.svelte';
+  import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
-  import { formatCurrency, formatPercentagePoints, formatPercent, signedClass } from '$lib/format';
-  import type { CycleProgress, CycleWindow } from '$lib/server/insights/market-cycle';
+  import type { AnalyticsSummary } from '$lib/analytics/types';
+  import {
+    formatCurrency,
+    formatDateTime,
+    formatPercent,
+    signedClass
+  } from '$lib/format';
   import type { PortfolioOverview, SnapshotRange } from '$lib/types';
   import type { PortfolioPlanning } from '$lib/planning/types';
 
   export let data: {
     overview: PortfolioOverview;
     planning: PortfolioPlanning;
-    cycle: CycleProgress | null;
-    cycleWindows: CycleWindow[];
+    analyticsSummary: AnalyticsSummary;
     snapshotRange: SnapshotRange;
     snapshotRanges: { value: SnapshotRange; label: string }[];
     resetResult: null | {
@@ -23,15 +35,8 @@
       deletedCategories: Array<{ label: string; count: number }>;
     };
   };
-  export let form: {
-    snapshotError?: string;
-    snapshotResult?: string;
-    snapshotBucket?: string;
-  } | null = null;
 
-  let allocationOption: EChartsOption;
   let valueOption: EChartsOption;
-  let showCycleOverlay = false;
   let refreshing = false;
   let refreshError = '';
 
@@ -39,84 +44,125 @@
   $: currency = overview.totals.baseCurrency;
   $: snapshotSeries = overview.portfolioSnapshotSeries;
   $: selectedRange = data.snapshotRange;
+  $: selectedChange = data.analyticsSummary.changes[selectedRange];
+  $: openHoldings = overview.holdings.filter((holding) => new Decimal(holding.quantity).gt(0));
   $: warnings = [
     ...overview.priceWarnings,
     ...overview.fxWarnings,
     ...(overview.dataHealthWarnings ?? [])
   ];
-  $: alertMessages = [refreshError, form?.snapshotError, ...warnings].filter(
-    (message): message is string => Boolean(message)
+  $: alertMessages = [refreshError, ...warnings].filter((message): message is string =>
+    Boolean(message)
+  );
+  $: latestPriceAt = openHoldings
+    .map((holding) => holding.priceCapturedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+  $: goalProgress = data.planning.goal?.progressPercentage;
+  $: visibleRanges = data.snapshotRanges.filter(
+    (range) => range.value !== '24h' || data.analyticsSummary.changes['24h'].available
   );
   $: chartSummary = `Portfolio value is ${formatCurrency(
     overview.totals.currentValue,
     currency
   )}. Total profit and loss is ${formatCurrency(overview.totals.totalProfit, currency)}.`;
-  $: allocationOption = {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'item' },
-    legend: { bottom: 0, textStyle: { color: '#99a5ad' } },
-    series: [
-      {
-        type: 'pie',
-        radius: ['52%', '72%'],
-        center: ['50%', '44%'],
-        avoidLabelOverlap: true,
-        label: { color: '#edf2f4' },
-        data: overview.allocation.map((item) => ({
-          name: item.label,
-          value: Number(item.value)
-        }))
-      }
-    ],
-    color: ['#2dd4bf', '#60a5fa', '#f59e0b', '#fb7185', '#a3e635', '#c084fc']
-  };
   $: valueOption = {
     backgroundColor: 'transparent',
-    grid: { left: 16, right: 14, top: 18, bottom: 30, containLabel: true },
-    tooltip: { trigger: 'axis' },
+    grid: { left: 6, right: 66, top: 20, bottom: 28, containLabel: false },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#182027',
+      borderColor: '#36434d',
+      textStyle: { color: '#f2f5f5' }
+    },
     xAxis: {
       type: 'time',
-      axisLabel: { color: '#99a5ad' },
-      axisLine: { lineStyle: { color: '#2a343b' } }
+      axisLabel: { color: '#77848d', hideOverlap: true },
+      axisLine: { lineStyle: { color: '#263039' } },
+      axisTick: { show: false },
+      splitLine: { show: false }
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#99a5ad' },
-      splitLine: { lineStyle: { color: '#2a343b' } }
+      position: 'right',
+      scale: true,
+      splitNumber: 4,
+      axisLabel: {
+        color: '#77848d',
+        formatter: (value: number) => compactCurrency(value, currency)
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { lineStyle: { color: '#202a32', type: 'dashed' } }
     },
     series: [
       {
         type: 'line',
-        smooth: true,
+        smooth: 0.22,
+        showSymbol: false,
         symbolSize: 7,
-        areaStyle: { color: 'rgba(45, 212, 191, 0.12)' },
-        lineStyle: { color: '#2dd4bf', width: 3 },
-        itemStyle: { color: '#2dd4bf' },
+        areaStyle: { color: 'rgba(53, 214, 203, 0.10)' },
+        lineStyle: { color: '#35d6cb', width: 2.5 },
+        itemStyle: { color: '#35d6cb' },
         data: overview.portfolioSeries.map(
           (point) => [point.bucketAt, Number(point.value)] as [string, number]
-        ),
-        markArea: cycleMarkArea(showCycleOverlay)
+        )
       }
     ]
   };
 
-  function cycleMarkArea(enabled: boolean) {
-    if (!enabled) return undefined;
+  function compactCurrency(value: number, targetCurrency: 'EUR' | 'USD'): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: targetCurrency,
+      notation: 'compact',
+      maximumFractionDigits: 0
+    }).format(value);
+  }
 
-    return {
-      silent: true,
-      itemStyle: { opacity: 0.08 },
-      data: data.cycleWindows.map(
-        (window) =>
-          [
-            {
-              xAxis: window.phaseStart,
-              itemStyle: { color: window.phase === 'bull' ? '#22c55e' : '#fb7185' }
-            },
-            { xAxis: window.phaseEndExclusive }
-          ] as [{ xAxis: string; itemStyle: { color: string } }, { xAxis: string }]
-      )
-    };
+  function rangeLabel(range: SnapshotRange): string {
+    return (
+      {
+        '24h': '1D',
+        '7d': '1W',
+        '30d': '1M',
+        '90d': '3M',
+        '1y': '1Y',
+        all: 'All'
+      } satisfies Record<SnapshotRange, string>
+    )[range];
+  }
+
+  function rangeCopy(range: SnapshotRange): string {
+    return (
+      {
+        '24h': 'today',
+        '7d': 'over 7 days',
+        '30d': 'over 30 days',
+        '90d': 'over 90 days',
+        '1y': 'over 1 year',
+        all: 'all time'
+      } satisfies Record<SnapshotRange, string>
+    )[range];
+  }
+
+  function signedCurrency(value: string): string {
+    const formatted = formatCurrency(value, currency);
+    return new Decimal(value).gt(0) ? `+${formatted}` : formatted;
+  }
+
+  function signedPercent(value: string): string {
+    const formatted = formatPercent(value);
+    return new Decimal(value).gt(0) ? `+${formatted}` : formatted;
+  }
+
+  function holdingHref(assetId: string): string {
+    return `/assets/${encodeURIComponent(assetId)}`;
+  }
+
+  function hasValuation(holding: PortfolioOverview['holdings'][number]): boolean {
+    return holding.priceStatus !== 'missing';
   }
 
   async function refreshPrices() {
@@ -134,313 +180,295 @@
   }
 </script>
 
-<section class="page">
-  <div class="page-header">
-    <div class="page-title">
-      <h1>Dashboard</h1>
-      <p class="muted">Average-cost portfolio view in {currency}</p>
-    </div>
-    <div class="toolbar">
-      <button class="btn" type="button" on:click={refreshPrices} disabled={refreshing}>
-        <RefreshCw size={18} />
-        {refreshing ? 'Refreshing' : 'Refresh prices'}
-      </button>
-      <a class="btn primary" href="/transactions?new=1">
+<section class="page portfolio-page">
+  <div class="page-header portfolio-header">
+    <h1>Portfolio</h1>
+    {#if openHoldings.length > 0}
+      <a class="btn primary add-transaction" href="/transactions?new=1">
         <Plus size={18} />
         Add transaction
       </a>
-    </div>
+    {/if}
   </div>
 
   {#if data.resetResult}
-    <div class="notice success-notice reset-result" data-testid="reset-success">
-      <strong>Reset complete: {data.resetResult.totalRows} rows deleted.</strong>
-      <span>
-        {data.resetResult.deletedCategories
-          .map((category) => `${category.label}: ${category.count}`)
-          .join(' · ')}
-      </span>
+    <div class="notice reset-result" data-testid="reset-success" role="status">
+      <strong>Reset complete</strong>
+      <span>{data.resetResult.totalRows} rows deleted.</span>
     </div>
   {/if}
 
   {#if alertMessages.length > 0}
-    <div class="notice warning-list">
+    <div class="notice warning-list" role="status">
       <TriangleAlert size={18} />
       <div>
-        {#each alertMessages as message}
+        <strong>Some values need attention</strong>
+        {#each alertMessages.slice(0, 3) as message}
           <span>{message}</span>
         {/each}
       </div>
     </div>
   {/if}
 
-  <a class="card planning-summary" href="/plan">
-    <span class="planning-icon"><Target size={19} /></span>
-    {#if data.planning.plan && data.planning.goal}
-      <span class="planning-copy">
-        <strong>{data.planning.plan.name}</strong>
-        {#if data.planning.goal.progressPercentage !== null}
-          <span>
-            {formatPercent(data.planning.goal.progressPercentage)} of
-            {formatCurrency(data.planning.goal.targetValue, data.planning.plan.currency)}
-            {data.planning.largestDrift
-              ? ` · largest drift ${data.planning.largestDrift.symbol} ${formatPercentagePoints(data.planning.largestDrift.driftPercentagePoints)}`
-              : ''}
-          </span>
-        {:else}
-          <span>Planning is partial until missing price or FX data recovers.</span>
-        {/if}
-      </span>
-      <span class:positive={data.planning.completeness.complete} class="planning-status">
-        {data.planning.completeness.complete ? 'On current data' : 'Partial data'}
-      </span>
-    {:else}
-      <span class="planning-copy">
-        <strong>Portfolio plan</strong>
-        <span>Set one value goal and your own allocation targets.</span>
-      </span>
-    {/if}
-    <ArrowRight size={18} class="planning-arrow" />
-  </a>
-
-  <div class="grid metric-grid dashboard-metrics">
-    <article class="card metric-card">
-      <span class="label">
-        {overview.totals.financialDataComplete ? 'Portfolio value' : 'Partial portfolio value'}
-      </span>
-      <PrivacyValue
-        className="value"
-        value={formatCurrency(overview.totals.currentValue, currency)}
-        kind="fiat"
-      />
-      <span class="meta">
-        {#if overview.totals.financialDataComplete}
-          {overview.totals.stalePriceCount} stale / {overview.totals.missingPriceCount} missing
-        {:else}
-          {#if overview.totals.excludedTransactionCount > 0}
-            {overview.totals.excludedTransactionCount} transaction(s) excluded by missing FX
-          {/if}
-          {#if overview.totals.excludedTransactionCount > 0 && overview.totals.missingPriceCount > 0}
-            ·
-          {/if}
-          {#if overview.totals.missingPriceCount > 0}
-            {overview.totals.missingPriceCount} open position price(s) missing
-          {/if}
-        {/if}
-      </span>
-    </article>
-    <article class="card metric-card">
-      <span class="label">Open cost basis</span>
-      <PrivacyValue
-        className="value"
-        value={formatCurrency(overview.totals.openCostBasis, currency)}
-        kind="fiat"
-      />
-      <span class="meta">Pooled average-cost position</span>
-    </article>
-    <article class="card metric-card">
-      <span class="label">Unrealized P/L</span>
-      <PrivacyValue
-        className={`value ${signedClass(overview.totals.unrealizedProfit)}`}
-        value={formatCurrency(overview.totals.unrealizedProfit, currency)}
-        kind="fiat"
-      />
-      <span class="meta">
-        {overview.totals.missingPriceCount > 0
-          ? 'Excludes missing market prices'
-          : 'Current value minus open cost'}
-      </span>
-    </article>
-    <article class="card metric-card">
-      <span class="label">Realized P/L</span>
-      <PrivacyValue
-        className={`value ${signedClass(overview.totals.realizedProfit)}`}
-        value={formatCurrency(overview.totals.realizedProfit, currency)}
-        kind="fiat"
-      />
-      <span class="meta">Average-cost disposals</span>
-    </article>
-    <article class="card metric-card">
-      <span class="label">Total P/L</span>
-      <PrivacyValue
-        className={`value ${signedClass(overview.totals.totalProfit)}`}
-        value={formatCurrency(overview.totals.totalProfit, currency)}
-        kind="fiat"
-      />
-      <span class="meta">
-        {overview.totals.missingPriceCount > 0
-          ? 'Excludes missing market prices'
-          : 'Realized plus unrealized'}
-      </span>
-    </article>
-    <article class="card metric-card">
-      <span class="label">Total ROI</span>
-      {#if overview.totals.roiPercent === null}
-        <strong class="value muted">–</strong>
-        <span class="meta">Unavailable until missing price or FX data recovers</span>
-      {:else}
-        <strong class="value {signedClass(overview.totals.roiPercent)}">
-          {formatPercent(overview.totals.roiPercent)}
-        </strong>
-        <span class="meta">{overview.totals.fxWarningCount} FX warnings</span>
-      {/if}
-    </article>
-  </div>
-
-  <CycleCard progress={data.cycle} compact />
-
-  <div class="grid two-column dashboard-main">
-    <section class="card">
-      <div class="section-head chart-head">
-        <div class="section-title">
-          <h2>Portfolio value</h2>
-          <span class="muted">
-            {snapshotSeries.snapshotType}{snapshotSeries.usedFallback ? ' fallback' : ''}
-          </span>
+  {#if openHoldings.length === 0}
+    <section class="first-entry" aria-labelledby="first-entry-heading">
+      <span class="empty-icon"><WalletCards size={24} /></span>
+      <div class="first-entry-copy">
+        <span class="eyebrow">Your private ledger is ready</span>
+        <h2 id="first-entry-heading">Start with your first transaction</h2>
+        <p>
+          Add a manual buy or sell. Portfolio value, average cost, performance, and holdings will
+          build from that single source of truth.
+        </p>
+        <a class="btn primary" href="/transactions?new=1">
+          <Plus size={18} />
+          Add your first transaction
+        </a>
+        <small>No exchange connection required.</small>
+      </div>
+      <div class="first-entry-outcomes" aria-label="What appears next">
+        <div>
+          <strong>Value and return</strong>
+          <span>One clear portfolio summary instead of a wall of zero metrics.</span>
         </div>
-        <nav class="range-tabs" aria-label="Snapshot range">
-          {#each data.snapshotRanges as range}
-            <a
-              class:active={selectedRange === range.value}
-              href={`/dashboard?range=${range.value}`}
-              aria-current={selectedRange === range.value ? 'page' : undefined}
-            >
-              {range.label}
+        <div>
+          <strong>Holdings</strong>
+          <span>Current allocation and position-level returns at a glance.</span>
+        </div>
+        <div>
+          <strong>History</strong>
+          <span>A trend line grows automatically from local snapshots.</span>
+        </div>
+      </div>
+    </section>
+  {:else}
+    <div class="portfolio-workspace">
+      <section class="portfolio-overview" aria-labelledby="portfolio-value-heading">
+        <div class="overview-topline">
+          <span id="portfolio-value-heading">Net portfolio</span>
+          <div class="price-status">
+            <span class:attention={overview.totals.stalePriceCount > 0} class="status-dot"></span>
+            <span>
+              {#if openHoldings.length === 0}
+                Ready when you are
+              {:else if latestPriceAt}
+                Updated {formatDateTime(latestPriceAt)}
+              {:else}
+                Price data pending
+              {/if}
+            </span>
+            {#if openHoldings.length > 0}
+              <button
+                type="button"
+                class="refresh-button"
+                on:click={refreshPrices}
+                disabled={refreshing}
+                aria-label={refreshing ? 'Refreshing prices' : 'Refresh prices'}
+                title={refreshing ? 'Refreshing prices' : 'Refresh prices'}
+              >
+                <RefreshCw size={17} class={refreshing ? 'spinning' : undefined} />
+              </button>
+            {/if}
+          </div>
+        </div>
+
+        <PrivacyValue
+          className="portfolio-value"
+          value={formatCurrency(overview.totals.currentValue, currency)}
+          kind="fiat"
+        />
+
+        <div class="period-change">
+          {#if selectedChange.available && selectedChange.valueChange && selectedChange.percentChange}
+            <strong class={signedClass(selectedChange.valueChange)}>
+              <PrivacyValue value={signedCurrency(selectedChange.valueChange)} kind="fiat" />
+              · {signedPercent(selectedChange.percentChange)}
+            </strong>
+            <span>{rangeCopy(selectedRange)}</span>
+          {:else if openHoldings.length === 0}
+            <span>Add your first transaction to begin.</span>
+          {:else}
+            <span>Performance change needs more snapshot history.</span>
+          {/if}
+        </div>
+
+        {#if openHoldings.length > 0}
+          <div class="summary-facts" aria-label="Portfolio summary">
+            <div>
+              <span>Total return</span>
+              <strong
+                class={overview.totals.roiPercent === null
+                  ? 'muted'
+                  : signedClass(overview.totals.totalProfit)}
+              >
+                <PrivacyValue value={signedCurrency(overview.totals.totalProfit)} kind="fiat" />
+                {#if overview.totals.roiPercent !== null}
+                  · {signedPercent(overview.totals.roiPercent)}
+                {/if}
+              </strong>
+            </div>
+            <div>
+              <span>Cost basis</span>
+              <PrivacyValue
+                className="summary-value"
+                value={formatCurrency(overview.totals.openCostBasis, currency)}
+                kind="fiat"
+              />
+            </div>
+            <a href="/plan" aria-label="Open portfolio goal">
+              <span>Goal</span>
+              <strong>
+                {#if data.planning.plan && data.planning.goal && goalProgress !== null}
+                  {formatPercent(goalProgress)} · {formatCurrency(
+                    data.planning.goal.targetValue,
+                    data.planning.plan.currency
+                  )}
+                {:else}
+                  Set target
+                {/if}
+              </strong>
             </a>
-          {/each}
-        </nav>
-        <label class="overlay-toggle">
-          <input type="checkbox" bind:checked={showCycleOverlay} />
-          <span>Cycle overlay</span>
-        </label>
-      </div>
-      {#if overview.holdings.length === 0}
-        <div class="empty-state">
-          <h2>No transactions yet</h2>
-          <a class="btn primary" href="/transactions?new=1">Add your first buy</a>
+          </div>
+        {/if}
+
+        <div class="chart-controls">
+          <nav class="range-tabs" aria-label="Portfolio range">
+            {#each visibleRanges as range}
+              <a
+                class:active={selectedRange === range.value}
+                href={`/dashboard?range=${range.value}`}
+                aria-label={`${range.label} portfolio range`}
+                aria-current={selectedRange === range.value ? 'page' : undefined}
+              >
+                {rangeLabel(range.value)}
+              </a>
+            {/each}
+          </nav>
+          <a class="details-link" href="/analytics">Details</a>
         </div>
-      {:else if !snapshotSeries.hasSnapshots}
-        <div class="empty-state">
-          <h2>No snapshots yet</h2>
-          <form method="POST" action="?/createSnapshot">
-            <button class="btn primary" type="submit">
-              <Camera size={18} />
-              Create snapshot now
-            </button>
-          </form>
+
+        <div class="chart-region">
+          {#if openHoldings.length === 0}
+            <div class="empty-portfolio">
+              <span class="empty-icon"><WalletCards size={24} /></span>
+              <div>
+                <h2>Start your portfolio</h2>
+                <p>Your value, performance, and holdings will appear after your first entry.</p>
+              </div>
+            </div>
+          {:else if !snapshotSeries.hasSnapshots || overview.portfolioSeries.length === 0}
+            <div class="empty-portfolio">
+              <span class="empty-icon"><BarChart3 size={24} /></span>
+              <div>
+                <h2>Your trend is getting ready</h2>
+                <p>Portfolio history appears as automatic snapshots are collected.</p>
+              </div>
+            </div>
+          {:else}
+            <Chart
+              option={valueOption}
+              label="Portfolio value chart"
+              summary={chartSummary}
+              sensitive
+            />
+          {/if}
         </div>
-      {:else if overview.portfolioSeries.length === 0}
-        <div class="empty-state">
-          <h2>No snapshot data</h2>
-          <p class="muted">No {snapshotSeries.snapshotType} snapshots in this range.</p>
+
+      </section>
+
+      <aside class="holdings-panel" aria-labelledby="holdings-heading">
+        <div class="holdings-heading">
+          <div>
+            <h2 id="holdings-heading">Holdings</h2>
+            <span>{openHoldings.length} {openHoldings.length === 1 ? 'asset' : 'assets'}</span>
+          </div>
+          {#if openHoldings.length > 0}
+            <a href="/assets">Details</a>
+          {/if}
         </div>
-      {:else}
-        <Chart
-          option={valueOption}
-          label="Portfolio value chart"
-          summary={chartSummary}
-          sensitive
-        />
-      {/if}
-    </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Allocation</h2>
-        <span class="muted">{overview.allocation.length} assets</span>
-      </div>
-      {#if overview.allocation.length === 0}
-        <div class="empty-state">
-          <p class="muted">Allocation appears after holdings exist.</p>
-        </div>
-      {:else}
-        <Chart
-          option={allocationOption}
-          label="Portfolio allocation chart"
-          summary={`${overview.allocation.length} assets are included in allocation.`}
-        />
-      {/if}
-    </section>
-  </div>
-
-  <div class="grid performer-grid">
-    <section class="card performer">
-      <span class="muted">Best performer</span>
-      {#if overview.bestPerformer}
-        <strong>{overview.bestPerformer.assetSymbol}</strong>
-        <span
-          class={overview.bestPerformer.roiPercent === null
-            ? 'muted'
-            : signedClass(overview.bestPerformer.roiPercent)}
-        >
-          {overview.bestPerformer.roiPercent === null
-            ? '–'
-            : formatPercent(overview.bestPerformer.roiPercent)}
-        </span>
-      {:else}
-        <strong>-</strong>
-        <span class="muted">No open position</span>
-      {/if}
-    </section>
-
-    <section class="card performer">
-      <span class="muted">Worst performer</span>
-      {#if overview.worstPerformer}
-        <strong>{overview.worstPerformer.assetSymbol}</strong>
-        <span
-          class={overview.worstPerformer.roiPercent === null
-            ? 'muted'
-            : signedClass(overview.worstPerformer.roiPercent)}
-        >
-          {overview.worstPerformer.roiPercent === null
-            ? '–'
-            : formatPercent(overview.worstPerformer.roiPercent)}
-        </span>
-      {:else}
-        <strong>-</strong>
-        <span class="muted">No open position</span>
-      {/if}
-    </section>
-
-    <section class="card performer">
-      <span class="muted">Realized P/L</span>
-      <PrivacyValue
-        className={`performer-amount ${signedClass(overview.totals.realizedProfit)}`}
-        value={formatCurrency(overview.totals.realizedProfit, currency)}
-        kind="fiat"
-      />
-      <span class="muted">Average-cost disposals</span>
-    </section>
-
-    <section class="card performer">
-      <span class="muted">Total fees</span>
-      <PrivacyValue
-        className="performer-amount"
-        value={formatCurrency(overview.totals.totalFees, currency)}
-        kind="fiat"
-      />
-      <span class="muted">Normalized into {currency}</span>
-    </section>
-  </div>
+        {#if openHoldings.length === 0}
+          <div class="holdings-empty">
+            <span class="empty-icon"><WalletCards size={24} /></span>
+            <h2>No assets yet</h2>
+            <p>Assets appear here after your first transaction.</p>
+          </div>
+        {:else}
+          <div class="holding-columns" aria-hidden="true">
+            <span>Asset</span>
+            <span>Value</span>
+            <span>Return</span>
+          </div>
+          <div class="holding-list">
+            {#each openHoldings as holding}
+              <a class="holding-row" href={holdingHref(holding.assetId)}>
+                <span class="asset-identity">
+                  <CryptoIcon
+                    src={holding.imageUrl}
+                    symbol={holding.assetSymbol}
+                    name={holding.assetName}
+                    size={42}
+                  />
+                  <span>
+                    <strong>{holding.assetName}</strong>
+                    <small>{holding.assetSymbol}</small>
+                  </span>
+                </span>
+                <span class="holding-value">
+                  {#if hasValuation(holding)}
+                    <PrivacyValue
+                      value={formatCurrency(holding.currentValue, currency)}
+                      kind="fiat"
+                    />
+                    <small>{formatPercent(holding.allocationPercent)}</small>
+                  {:else}
+                    <span class="muted">Price missing</span>
+                  {/if}
+                </span>
+                <span class="holding-return">
+                  <strong
+                    class={holding.roiPercent === null ? 'muted' : signedClass(holding.roiPercent)}
+                  >
+                    {holding.roiPercent === null ? '–' : signedPercent(holding.roiPercent)}
+                  </strong>
+                  <ChevronRight size={17} />
+                </span>
+              </a>
+            {/each}
+          </div>
+        {/if}
+      </aside>
+    </div>
+  {/if}
 </section>
 
 <style>
-  .warning-list {
-    align-items: flex-start;
-    display: flex;
-    gap: 0.6rem;
-    margin-bottom: 1rem;
+  .portfolio-page {
+    max-width: 1560px;
+  }
+
+  .portfolio-header {
+    align-items: center;
+    justify-content: flex-start;
+    margin-bottom: 2.5rem;
+  }
+
+  .add-transaction {
+    margin-left: 0.75rem;
   }
 
   .reset-result {
-    display: grid;
-    gap: 0.35rem;
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
     margin-bottom: 1rem;
   }
 
-  .reset-result span {
-    color: var(--muted);
-    font-size: 0.82rem;
+  .warning-list {
+    align-items: flex-start;
+    display: flex;
+    gap: 0.7rem;
+    margin-bottom: 1.5rem;
   }
 
   .warning-list div {
@@ -448,186 +476,560 @@
     gap: 0.25rem;
   }
 
-  .planning-summary {
-    align-items: center;
+  .warning-list span,
+  .reset-result span {
+    font-size: 0.84rem;
+  }
+
+  .first-entry {
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
     display: grid;
-    gap: 0.75rem;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    margin-bottom: 1rem;
-    padding: 0.8rem 0.9rem;
+    gap: 1.25rem 1.5rem;
+    grid-template-columns: 3rem minmax(0, 36rem);
+    max-width: 720px;
+    padding: clamp(3rem, 8vw, 6.5rem) 0;
   }
 
-  .planning-summary:hover {
-    border-color: var(--border-strong);
-    background: var(--surface-soft);
+  .first-entry-copy {
+    display: grid;
+    gap: 0.85rem;
   }
 
-  .planning-icon {
-    align-items: center;
-    background: rgba(45, 212, 191, 0.12);
-    border-radius: 8px;
+  .first-entry-copy .eyebrow {
     color: var(--accent);
-    display: flex;
-    height: 2.25rem;
-    justify-content: center;
-    width: 2.25rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
-  .planning-copy {
+  .first-entry-copy h2 {
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    letter-spacing: -0.045em;
+    line-height: 1.05;
+  }
+
+  .first-entry-copy p {
+    color: var(--muted);
+    line-height: 1.65;
+    max-width: 34rem;
+  }
+
+  .first-entry-copy .btn {
+    justify-self: start;
+    margin-top: 0.35rem;
+  }
+
+  .first-entry-copy small {
+    color: var(--subtle);
+  }
+
+  .first-entry-outcomes {
+    border-top: 1px solid var(--border);
     display: grid;
-    gap: 0.2rem;
-    min-width: 0;
+    gap: 1.25rem;
+    grid-column: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
   }
 
-  .planning-copy span,
-  .planning-status {
+  .first-entry-outcomes div {
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .first-entry-outcomes strong {
+    font-size: 0.86rem;
+  }
+
+  .first-entry-outcomes span {
     color: var(--muted);
     font-size: 0.8rem;
+    line-height: 1.5;
   }
 
-  .planning-status {
-    white-space: nowrap;
+  .portfolio-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.85fr);
+    min-height: calc(100vh - 9.5rem);
   }
 
-  .planning-arrow {
+  .portfolio-overview {
+    min-width: 0;
+    padding-right: clamp(1.75rem, 3vw, 3.25rem);
+  }
+
+  .overview-topline {
+    align-items: center;
     color: var(--muted);
-  }
-
-  .toolbar {
     display: flex;
-    gap: 0.5rem;
+    font-size: 0.92rem;
+    gap: 1rem;
+    justify-content: space-between;
   }
 
-  .dashboard-main {
+  .price-status {
+    align-items: center;
+    color: var(--subtle);
+    display: flex;
+    font-size: 0.78rem;
+    gap: 0.45rem;
+  }
+
+  .status-dot {
+    background: var(--positive);
+    border-radius: 50%;
+    height: 0.45rem;
+    width: 0.45rem;
+  }
+
+  .status-dot.attention {
+    background: var(--amber);
+  }
+
+  .refresh-button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    height: 2rem;
+    justify-content: center;
+    padding: 0;
+    width: 2rem;
+  }
+
+  .refresh-button:hover {
+    background: var(--surface-soft);
+    color: var(--text);
+  }
+
+  :global(.spinning) {
+    animation: spin 900ms linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  :global(.portfolio-value) {
+    display: block;
+    font-size: clamp(3.1rem, 5vw, 5.25rem);
+    font-variant-numeric: tabular-nums;
+    font-weight: 760;
+    letter-spacing: -0.065em;
+    line-height: 1;
     margin-top: 1rem;
   }
 
-  .cycle-card {
-    margin-bottom: 1rem;
-  }
-
-  .dashboard-metrics {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  .section-head {
-    align-items: center;
+  .period-change {
+    align-items: baseline;
     display: flex;
-    justify-content: space-between;
-    margin-bottom: 0.8rem;
+    gap: 0.55rem;
+    margin-top: 1.05rem;
   }
 
-  .chart-head {
-    align-items: flex-start;
-    gap: 0.8rem;
+  .period-change strong {
+    font-size: 1.15rem;
+    font-weight: 650;
   }
 
-  .section-title {
+  .period-change span {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .summary-facts {
+    display: flex;
+    margin-top: 2.45rem;
+  }
+
+  .summary-facts > div,
+  .summary-facts > a {
     display: grid;
-    gap: 0.25rem;
+    gap: 0.45rem;
+    min-width: 10.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .summary-facts > * + * {
+    border-left: 1px solid var(--border);
+    padding-left: 1.5rem;
+  }
+
+  .summary-facts > a:hover strong {
+    color: var(--accent);
+  }
+
+  .summary-facts span {
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+
+  .summary-facts strong,
+  :global(.summary-value) {
+    font-size: 1.05rem;
+    font-weight: 650;
   }
 
   .range-tabs {
-    background: var(--surface-soft);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    display: flex;
-    gap: 0.2rem;
-    padding: 0.2rem;
-  }
-
-  .overlay-toggle {
     align-items: center;
-    color: var(--muted);
-    display: inline-flex;
-    font-size: 0.82rem;
-    font-weight: 800;
-    gap: 0.45rem;
-    min-height: 2rem;
-    white-space: nowrap;
+    display: flex;
+    gap: 0.35rem;
   }
 
-  .overlay-toggle input {
-    accent-color: var(--accent);
-    min-height: auto;
-    width: auto;
+  .chart-controls {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2.7rem;
+  }
+
+  .details-link,
+  .holdings-heading a {
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 650;
   }
 
   .range-tabs a {
-    align-items: center;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     color: var(--muted);
     display: inline-flex;
-    font-size: 0.82rem;
-    font-weight: 800;
+    font-size: 0.85rem;
     justify-content: center;
-    min-height: 2rem;
-    min-width: 2.6rem;
+    min-height: 2.45rem;
+    min-width: 2.8rem;
     padding: 0 0.55rem;
   }
 
   .range-tabs a:hover,
   .range-tabs a.active {
-    background: var(--surface-strong);
+    background: var(--surface-soft);
     color: var(--text);
   }
 
-  .performer-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    margin-top: 1rem;
+  .chart-region {
+    min-height: 300px;
+    padding-top: 0.5rem;
   }
 
-  .performer {
+  .chart-region :global(.chart) {
+    min-height: 300px;
+  }
+
+  .empty-portfolio {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    min-height: 220px;
+    padding: 2rem;
+  }
+
+  .empty-portfolio div {
     display: grid;
     gap: 0.4rem;
   }
 
-  .performer strong,
-  :global(.performer-amount) {
-    font-size: 1.35rem;
-    font-weight: 700;
+  .empty-portfolio h2 {
+    color: var(--text);
   }
 
-  @media (max-width: 1400px) {
-    .dashboard-metrics {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+  .empty-portfolio p,
+  .holdings-empty p {
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    max-width: 28rem;
+  }
+
+  .empty-icon {
+    align-items: center;
+    background: var(--surface-soft);
+    border-radius: 50%;
+    color: var(--accent);
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 3rem;
+    justify-content: center;
+    width: 3rem;
+  }
+
+  .holdings-heading,
+  .holdings-heading > div {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .holdings-heading a {
+    align-items: center;
+    color: var(--accent);
+    display: inline-flex;
+    font-size: 0.82rem;
+    gap: 0.35rem;
+  }
+
+  .holdings-panel {
+    border-left: 1px solid var(--border);
+    min-width: 0;
+    padding-left: clamp(1.75rem, 3vw, 3.25rem);
+  }
+
+  .holdings-heading {
+    min-height: 2rem;
+  }
+
+  .holdings-heading > div {
+    gap: 0.6rem;
+  }
+
+  .holdings-heading > div span {
+    color: var(--subtle);
+    font-size: 0.78rem;
+  }
+
+  .holding-columns,
+  .holding-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) minmax(105px, 0.72fr) minmax(90px, 0.55fr);
+  }
+
+  .holding-columns {
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.74rem;
+    margin-top: 1.4rem;
+    padding: 0 0 0.8rem;
+  }
+
+  .holding-columns span:not(:first-child) {
+    text-align: right;
+  }
+
+  .holding-row {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    gap: 0.75rem;
+    min-height: 6rem;
+    transition: background 120ms ease;
+  }
+
+  .holding-row:hover {
+    background: rgba(255, 255, 255, 0.018);
+  }
+
+  .asset-identity {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .asset-identity > span,
+  .holding-value {
+    display: grid;
+    gap: 0.28rem;
+    min-width: 0;
+  }
+
+  .asset-identity strong {
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .asset-identity small,
+  .holding-value small {
+    color: var(--subtle);
+    font-size: 0.75rem;
+  }
+
+  .holding-value,
+  .holding-return {
+    text-align: right;
+  }
+
+  .holding-return {
+    align-items: center;
+    display: flex;
+    gap: 0.6rem;
+    justify-content: flex-end;
+  }
+
+  .holding-return strong {
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+
+  .holding-return :global(svg) {
+    color: var(--subtle);
+    flex: 0 0 auto;
+  }
+
+  .holdings-empty {
+    align-content: center;
+    display: grid;
+    gap: 0.65rem;
+    justify-items: start;
+    min-height: 24rem;
+  }
+
+  @media (max-width: 1200px) {
+    .portfolio-workspace {
+      grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+    }
+
+    .holding-columns,
+    .holding-row {
+      grid-template-columns: minmax(125px, 1fr) minmax(95px, 0.7fr) minmax(76px, 0.5fr);
     }
   }
 
-  @media (max-width: 820px) {
-    .planning-summary {
+  @media (max-width: 1040px) {
+    .portfolio-workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .portfolio-overview {
+      padding-right: 0;
+    }
+
+    .holdings-panel {
+      border-left: 0;
+      border-top: 1px solid var(--border);
+      margin-top: 2rem;
+      padding-left: 0;
+      padding-top: 1.75rem;
+    }
+
+    .holdings-empty {
+      min-height: 12rem;
+    }
+  }
+
+  @media (max-width: 680px) {
+    .portfolio-header {
+      align-items: center;
+      display: flex;
+      margin-bottom: 2rem;
+    }
+
+    .first-entry {
+      gap: 1rem;
+      grid-template-columns: 3rem minmax(0, 1fr);
+      padding: 2.75rem 0;
+    }
+
+    .first-entry-outcomes {
+      grid-column: 1 / -1;
+      grid-template-columns: 1fr;
+    }
+
+    .add-transaction {
+      margin-left: auto;
+      width: auto !important;
+    }
+
+    :global(.portfolio-value) {
+      font-size: clamp(2.75rem, 14vw, 4rem);
+    }
+
+    .overview-topline {
+      align-items: flex-start;
+      display: grid;
+    }
+
+    .price-status {
+      justify-self: start;
+    }
+
+    .period-change {
+      align-items: flex-start;
+      display: grid;
+      gap: 0.25rem;
+    }
+
+    .summary-facts {
+      margin-top: 2rem;
+    }
+
+    .summary-facts > div {
+      min-width: 0;
+      width: 50%;
+    }
+
+    .range-tabs {
+      justify-content: space-between;
+      margin-top: 2rem;
+      overflow-x: auto;
+    }
+
+    .range-tabs a {
+      min-width: 2.6rem;
+    }
+
+    .chart-region,
+    .chart-region :global(.chart) {
+      min-height: 240px;
+    }
+
+    .empty-portfolio {
+      align-items: flex-start;
+      min-height: 190px;
+      padding: 1.25rem 0;
+    }
+
+    .observation-list > div {
+      align-items: flex-start;
+    }
+
+    .goal-strip {
       grid-template-columns: auto minmax(0, 1fr) auto;
     }
 
-    .planning-status {
+    .goal-progress {
+      grid-column: 2 / -1;
+      grid-row: 2;
+    }
+
+    .holding-columns {
       display: none;
     }
 
-    .dashboard-metrics {
-      grid-template-columns: 1fr;
+    .holding-list {
+      margin-top: 0.75rem;
     }
 
-    .performer-grid {
-      grid-template-columns: 1fr;
+    .holding-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      min-height: 5.4rem;
     }
 
-    .toolbar {
-      display: grid;
-      grid-template-columns: 1fr;
-      width: 100%;
+    .holding-value {
+      display: none;
     }
 
-    .chart-head,
-    .range-tabs {
-      width: 100%;
+    .holding-return {
+      min-width: 5.5rem;
     }
+  }
 
-    .chart-head {
-      display: grid;
-    }
-
-    .range-tabs {
-      overflow-x: auto;
+  @media (prefers-reduced-motion: reduce) {
+    :global(.spinning) {
+      animation: none;
     }
   }
 </style>
