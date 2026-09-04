@@ -61,7 +61,8 @@ describe('portfolio calculations', () => {
           type: 'sell',
           quantity: '0.5',
           fiatAmount: '75',
-          feeAmount: '0'
+          feeAmount: '0',
+          transactionDate: '2025-01-02T12:00:00.000Z'
         })
       ],
       [{ ...btcQuote, price: '120' }]

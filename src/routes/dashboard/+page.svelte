@@ -14,12 +14,7 @@
   import CryptoIcon from '$lib/components/CryptoIcon.svelte';
   import PrivacyValue from '$lib/components/PrivacyValue.svelte';
   import type { AnalyticsSummary } from '$lib/analytics/types';
-  import {
-    formatCurrency,
-    formatDateTime,
-    formatPercent,
-    signedClass
-  } from '$lib/format';
+  import { formatCurrency, formatDateTime, formatPercent, signedClass } from '$lib/format';
   import type { PortfolioOverview, SnapshotRange } from '$lib/types';
   import type { PortfolioPlanning } from '$lib/planning/types';
 
@@ -318,7 +313,7 @@
             <a href="/plan" aria-label="Open portfolio goal">
               <span>Goal</span>
               <strong>
-                {#if data.planning.plan && data.planning.goal && goalProgress !== null}
+                {#if data.planning.plan && data.planning.goal && goalProgress != null}
                   {formatPercent(goalProgress)} · {formatCurrency(
                     data.planning.goal.targetValue,
                     data.planning.plan.currency
@@ -373,7 +368,6 @@
             />
           {/if}
         </div>
-
       </section>
 
       <aside class="holdings-panel" aria-labelledby="holdings-heading">
@@ -990,19 +984,6 @@
       align-items: flex-start;
       min-height: 190px;
       padding: 1.25rem 0;
-    }
-
-    .observation-list > div {
-      align-items: flex-start;
-    }
-
-    .goal-strip {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
-
-    .goal-progress {
-      grid-column: 2 / -1;
-      grid-row: 2;
     }
 
     .holding-columns {

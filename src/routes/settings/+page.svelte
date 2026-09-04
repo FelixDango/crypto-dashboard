@@ -78,8 +78,8 @@
     </summary>
     <div class="disclosure-content">
       <p class="muted">
-        Conservative thresholds used for informational candidate ranking. All five fresh signals
-        are still required.
+        Conservative thresholds used for informational candidate ranking. All five fresh signals are
+        still required.
       </p>
       <form method="POST" action="?/updateSignals" use:enhance>
         <div class="field-grid signal-grid">
@@ -184,68 +184,69 @@
       </div>
 
       <form method="POST" action="?/resetData" use:enhance>
-      <fieldset>
-        <legend>Select exactly one reset scope</legend>
-        <label class="scope-option">
-          <input type="radio" name="scope" value="portfolio" bind:group={resetScope} />
-          <span>
-            <strong>Portfolio and planning</strong>
-            <small
-              >Ledger, accounting, snapshots, prices, FX cache, plans, and orphaned assets.</small
-            >
-          </span>
-        </label>
-        <label class="scope-option">
-          <input type="radio" name="scope" value="full" bind:group={resetScope} />
-          <span>
-            <strong>Full historical data</strong>
-            <small>Adds news, market-signal, sentiment, and other fetched history.</small>
-          </span>
-        </label>
-      </fieldset>
+        <fieldset>
+          <legend>Select exactly one reset scope</legend>
+          <label class="scope-option">
+            <input type="radio" name="scope" value="portfolio" bind:group={resetScope} />
+            <span>
+              <strong>Portfolio and planning</strong>
+              <small
+                >Ledger, accounting, snapshots, prices, FX cache, plans, and orphaned assets.</small
+              >
+            </span>
+          </label>
+          <label class="scope-option">
+            <input type="radio" name="scope" value="full" bind:group={resetScope} />
+            <span>
+              <strong>Full historical data</strong>
+              <small>Adds news, market-signal, sentiment, and other fetched history.</small>
+            </span>
+          </label>
+        </fieldset>
 
-      {#if resetScope && selectedPreview}
-        <div class="reset-preview" data-testid="reset-preview">
-          <div>
-            <strong>{selectedPreview.totalRows} rows will be deleted</strong>
-            <span>Settings, migration history, configured news sources, and backup files stay.</span
-            >
+        {#if resetScope && selectedPreview}
+          <div class="reset-preview" data-testid="reset-preview">
+            <div>
+              <strong>{selectedPreview.totalRows} rows will be deleted</strong>
+              <span
+                >Settings, migration history, configured news sources, and backup files stay.</span
+              >
+            </div>
+            <dl>
+              {#each data.resetCategories[resetScope] as category}
+                <div>
+                  <dt>{data.resetCategoryLabels[category]}</dt>
+                  <dd>{selectedPreview.counts[category]}</dd>
+                </div>
+              {/each}
+            </dl>
           </div>
-          <dl>
-            {#each data.resetCategories[resetScope] as category}
-              <div>
-                <dt>{data.resetCategoryLabels[category]}</dt>
-                <dd>{selectedPreview.counts[category]}</dd>
-              </div>
-            {/each}
-          </dl>
-        </div>
-      {/if}
+        {/if}
 
-      <label class="acknowledgement">
-        <input type="checkbox" name="acknowledged" bind:checked={resetAcknowledged} />
-        <span>I understand this permanently deletes the listed data.</span>
-      </label>
+        <label class="acknowledgement">
+          <input type="checkbox" name="acknowledged" bind:checked={resetAcknowledged} />
+          <span>I understand this permanently deletes the listed data.</span>
+        </label>
 
-      <label class="field confirmation-field">
-        <span class="field-label">Type DELETE ALL TEST DATA</span>
-        <input
-          name="confirmation_phrase"
-          type="text"
-          autocomplete="off"
-          bind:value={resetPhrase}
-          placeholder="DELETE ALL TEST DATA"
-        />
-      </label>
+        <label class="field confirmation-field">
+          <span class="field-label">Type DELETE ALL TEST DATA</span>
+          <input
+            name="confirmation_phrase"
+            type="text"
+            autocomplete="off"
+            bind:value={resetPhrase}
+            placeholder="DELETE ALL TEST DATA"
+          />
+        </label>
 
-      <button
-        class="btn destructive"
-        type="submit"
-        disabled={!resetReady}
-        data-testid="reset-submit"
-      >
-        <Trash2 size={17} /> Permanently delete selected data
-      </button>
+        <button
+          class="btn destructive"
+          type="submit"
+          disabled={!resetReady}
+          data-testid="reset-submit"
+        >
+          <Trash2 size={17} /> Permanently delete selected data
+        </button>
       </form>
     </div>
   </details>

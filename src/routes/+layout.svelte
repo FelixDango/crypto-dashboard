@@ -71,7 +71,6 @@
         {/if}
         <span>{privacyLevelLabel($privacyLevel)}</span>
       </button>
-
     </div>
   </aside>
 
