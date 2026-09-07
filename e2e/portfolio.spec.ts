@@ -158,6 +158,9 @@ async function performReset(page: Page, scope: 'portfolio' | 'full'): Promise<vo
   await expect(
     page.getByRole('heading', { name: 'Start with your first transaction' })
   ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Plan before your first transaction' })
+  ).toHaveAttribute('href', '/plan');
 }
 
 test.describe.serial('private portfolio smoke flow', () => {

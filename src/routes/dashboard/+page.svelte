@@ -220,6 +220,10 @@
           <Plus size={18} />
           Add your first transaction
         </a>
+        <a class="planning-link" href="/plan">
+          Plan before your first transaction
+          <ChevronRight size={16} />
+        </a>
         <small>No exchange connection required.</small>
       </div>
       <div class="first-entry-outcomes" aria-label="What appears next">
@@ -505,6 +509,19 @@
   .first-entry-copy .btn {
     justify-self: start;
     margin-top: 0.35rem;
+  }
+
+  .planning-link {
+    align-items: center;
+    color: var(--muted);
+    display: inline-flex;
+    font-size: 0.88rem;
+    gap: 0.25rem;
+    justify-self: start;
+  }
+
+  .planning-link:hover {
+    color: var(--text);
   }
 
   .first-entry-copy small {
